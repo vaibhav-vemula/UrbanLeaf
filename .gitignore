@@ -1,0 +1,114 @@
+# ===========================
+# Environment & Secrets
+# ===========================
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+# Keep .env.example — it's a safe template
+!.env.example
+
+# ===========================
+# macOS
+# ===========================
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# ===========================
+# Node / npm / yarn
+# ===========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.npm/
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# ===========================
+# Next.js
+# ===========================
+.next/
+out/
+.vercel/
+next-env.d.ts
+
+# ===========================
+# Python
+# ===========================
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ===========================
+# Hardhat / Solidity
+# ===========================
+artifacts/
+cache/
+typechain-types/
+coverage/
+coverage.json
+
+# ===========================
+# Deployments
+# ===========================
+deployments-*.json
+
+# ===========================
+# Build outputs
+# ===========================
+dist/
+build/
+out/
+
+# ===========================
+# Logs
+# ===========================
+*.log
+logs/
+
+# ===========================
+# IDE & Editor
+# ===========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# ===========================
+# Claude Code
+# ===========================
+.claude/
+
+# ===========================
+# OS
+# ===========================
+Thumbs.db
+ehthumbs.db
+Desktop.ini

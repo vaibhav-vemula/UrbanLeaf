@@ -1,0 +1,40 @@
+{
+  "name": "urbanleaf-ai-blockchain-service",
+  "version": "1.0.0",
+  "description": "Arbitrum Sepolia blockchain microservice for UrbanLeaf AI",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "compile": "hardhat compile --config hardhat.config.cjs",
+    "deploy": "node scripts/deploy-contract.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "arbitrum",
+    "ethereum",
+    "blockchain",
+    "voting",
+    "smart-contracts"
+  ],
+  "author": "UrbanLeaf AI Team",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.0",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.27.0",
+    "nodemon": "^3.1.0",
+    "solc": "^0.8.20"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
