@@ -1,0 +1,6 @@
+{
+  "urbanleafApiUrl": "http://localhost:4000",
+  "blockchainServiceUrl": "http://localhost:5000",
+  "contractAddress": "0x6e3889b6Fe30563c1e43547853982FFD4F2d1D0c",
+  "chainSelectorName": "ethereum-testnet-sepolia-arbitrum-1"
+}

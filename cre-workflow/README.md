@@ -51,41 +51,58 @@ Cron fires (midnight UTC)
 ## Setup
 
 ```bash
+# Fill in keys for all three workflows (one .env covers all)
 cp .env.example .env
-# Fill in GEMINI_API_KEY, ARBITRUM_SEPOLIA_RPC_URL, CONTRACT_ADDRESS, PRIVATE_KEY
 
-npm install
+# Install deps for all workflow projects
+npm run install:all
+```
+
+## Structure
+
+Each workflow is its own CRE project folder (required by the CRE CLI):
+
+```
+cre-workflow/
+├── evm-score-proposal/   # Workflow 1 — EVM Log trigger
+│   ├── workflow.yaml
+│   ├── package.json
+│   └── src/workflow.ts
+├── score-proposal/        # Workflow 2 — HTTP trigger
+│   ├── workflow.yaml
+│   ├── package.json
+│   └── src/workflow.ts
+└── auto-close/            # Workflow 3 — Cron trigger
+    ├── workflow.yaml
+    ├── package.json
+    └── src/workflow.ts
 ```
 
 ## Simulate
 
 Install the CRE CLI: https://docs.chain.link/cre/getting-started/overview
 
+**The backend auto-updates the test payloads** every time a proposal is created via the
+frontend — `test/score-proposal-payload.json` and `test/last-tx-hash.txt` are kept in sync.
+Just create a proposal, then run the simulate command you want.
+
+Run all simulate commands from the `cre-workflow/` directory.
+
 ```bash
-# Simulate the EVM Log trigger workflow (autonomous on-chain scorer)
-cre workflow simulate evm-score-proposal \
-  --non-interactive \
-  --trigger-index 0 \
-  --evm-log-payload @./test/evm-proposal-created.json
-
-# Simulate the HTTP trigger workflow (backend-initiated scorer)
-cre workflow simulate score-proposal \
-  --non-interactive \
-  --trigger-index 0 \
-  --http-payload @./test/score-proposal-payload.json
-
-# Simulate the cron trigger workflow (daily auto-close)
-cre workflow simulate auto-close \
-  --non-interactive \
-  --trigger-index 0
-```
-
-Or use the npm scripts:
-```bash
-npm run simulate:evm
+# Workflow 2 — HTTP trigger
+# test/score-proposal-payload.json is auto-updated when a proposal is created
 npm run simulate:score
+
+# Workflow 1 — EVM Log trigger
+# test/last-tx-hash.txt is auto-updated when a proposal is created
+npm run simulate:evm
+
+# Workflow 3 — Cron trigger
 npm run simulate:autoclose
 ```
+
+Note: each script `cd`s into the workflow subfolder before running — the CRE CLI requires
+`workflow.yaml` to be present in the current (or a parent) directory.
 
 ## Chainlink Integration Points
 

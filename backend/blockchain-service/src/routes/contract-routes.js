@@ -112,6 +112,21 @@ contractRoutes.get('/has-voted/:proposalId/:address', async (req, res, next) => 
   }
 });
 
+contractRoutes.post('/set-environmental-score', async (req, res, next) => {
+  try {
+    const { proposalId, score, urgencyLevel, insight } = req.body;
+    if (proposalId === undefined || score === undefined || !urgencyLevel || !insight) {
+      return res.status(400).json({ success: false, error: 'Missing required fields: proposalId, score, urgencyLevel, insight' });
+    }
+    const result = await req.app.locals.blockchainService.setEnvironmentalScore(
+      parseInt(proposalId), parseInt(score), urgencyLevel, insight
+    );
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
 contractRoutes.post('/close-proposal', async (req, res, next) => {
   try {
     const { proposalId } = req.body;

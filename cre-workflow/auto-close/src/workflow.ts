@@ -34,7 +34,7 @@ interface ClosingSummary {
 }
 
 // ---------------------------------------------------------------------------
-// Workflow definition
+// Workflow
 // ---------------------------------------------------------------------------
 
 export default workflow({
@@ -43,31 +43,27 @@ export default workflow({
     "Daily cron that reads active proposals from Arbitrum Sepolia, closes " +
     "expired ones on-chain, and uses Gemini AI to generate closing summaries.",
 
-  // -------------------------------------------------------------------------
-  // Trigger: Cron — every day at midnight UTC
-  // -------------------------------------------------------------------------
   triggers: [
     cron.trigger({
       schedule: "0 0 * * *",
     }),
   ],
 
-  // -------------------------------------------------------------------------
-  // Workflow steps
-  // -------------------------------------------------------------------------
   run: async (ctx) => {
     const now = BigInt(Math.floor(Date.now() / 1000));
 
     ctx.log(`[UrbanLeaf CRE] Auto-close run at ${new Date().toISOString()}`);
 
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // Step 1: Read all active proposal IDs from Arbitrum Sepolia
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     const activeIdsRaw = await evm.read({
       chainId: 421614,
       rpcUrl: ctx.secrets.ARBITRUM_SEPOLIA_RPC_URL,
       contractAddress: ctx.secrets.CONTRACT_ADDRESS,
-      abi: ["function getAllActiveProposals() external view returns (uint64[] memory)"],
+      abi: [
+        "function getAllActiveProposals() external view returns (uint64[] memory)",
+      ],
       functionName: "getAllActiveProposals",
       args: [],
     });
@@ -79,9 +75,9 @@ export default workflow({
       return { closedCount: 0, message: "No active proposals to process." };
     }
 
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // Step 2: Fetch each proposal and find expired ones
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     const getProposalAbi = [
       `function getProposal(uint64 proposalId) external view returns (
         tuple(
@@ -132,9 +128,9 @@ export default workflow({
 
     ctx.log(`[UrbanLeaf CRE] ${expired.length} proposal(s) ready to close`);
 
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // Step 3: Close each expired proposal
-    // -----------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     const updateAbi = [
       "function updateProposalStatus(uint64 proposalId) external",
     ];
@@ -142,10 +138,8 @@ export default workflow({
     const closed: { id: string; outcome: string; summary: string }[] = [];
 
     for (const proposal of expired) {
-      // Generate an AI closing summary via Gemini
       const summary = await generateClosingSummary(ctx, proposal);
 
-      // Write on-chain: updateProposalStatus() tallies votes and sets final status
       await evm.write({
         chainId: 421614,
         rpcUrl: ctx.secrets.ARBITRUM_SEPOLIA_RPC_URL,

@@ -1,4 +1,5 @@
 import os
+import json
 import httpx
 import logging
 from typing import Dict, Any, Optional, List
@@ -11,6 +12,7 @@ class BlockchainService:
     def __init__(self):
         self.service_url = os.getenv('BLOCKCHAIN_SERVICE_URL', 'http://localhost:5000')
         self.cre_workflow_url = os.getenv('CRE_WORKFLOW_URL', '')
+        self.cre_workflow_dir = os.getenv('CRE_WORKFLOW_DIR', '')
         self.network = 'arbitrum_sepolia'
         self.explorer_base = 'https://sepolia.arbiscan.io'
         self.timeout = httpx.Timeout(30.0, connect=10.0)
@@ -122,7 +124,8 @@ class BlockchainService:
                 park_id = proposal_data.get('parkId', '')
 
                 # Trigger CRE environmental scoring workflow (fire-and-forget)
-                await self._trigger_cre_scoring(proposal_id, park_id)
+                tx_hash = result.get('transactionHash', '')
+                await self._trigger_cre_scoring(proposal_id, park_id, tx_hash)
 
                 return {
                     'success': True,
@@ -288,33 +291,56 @@ class BlockchainService:
             logger.error(f"Failed to get user balances: {e}")
             return {'success': False, 'error': str(e)}
 
-    async def _trigger_cre_scoring(self, proposal_id: int, park_id: str) -> None:
+    async def _trigger_cre_scoring(self, proposal_id: int, park_id: str, tx_hash: str = "") -> None:
         """
-        Fire-and-forget call to the CRE score-proposal workflow HTTP trigger.
-        CRE then fetches live environmental data, calls Gemini AI, and writes
-        the urgency score back on-chain via setEnvironmentalScore().
+        Triggers CRE score-proposal workflow:
+        - Production (CRE_WORKFLOW_URL set): HTTP call to deployed CRE endpoint
+        - Local (CRE_WORKFLOW_DIR set): updates payload JSON and runs cre workflow simulate
         """
-        if not self.cre_workflow_url:
-            logger.info("CRE_WORKFLOW_URL not set — skipping CRE environmental scoring")
-            return
+        if self.cre_workflow_url:
+            # Production path — call deployed CRE HTTP endpoint
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+                    response = await client.post(
+                        f"{self.cre_workflow_url}/score-proposal",
+                        json={"proposalId": str(proposal_id), "parkId": park_id},
+                    )
+                    if response.status_code == 200:
+                        logger.info(f"CRE scoring triggered for proposal #{proposal_id} (park: {park_id})")
+                    else:
+                        logger.warning(f"CRE workflow returned {response.status_code} for proposal #{proposal_id}")
+            except Exception as e:
+                logger.warning(f"CRE scoring trigger failed (non-fatal): {e}")
 
+        elif self.cre_workflow_dir:
+            # Local dev path — update payload so simulate commands are ready to run
+            self._update_cre_payload(proposal_id, park_id, tx_hash)
+
+        else:
+            logger.info("CRE_WORKFLOW_URL and CRE_WORKFLOW_DIR not set — skipping CRE scoring")
+
+    def _update_cre_payload(self, proposal_id: int, park_id: str, tx_hash: str = "") -> None:
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
-                response = await client.post(
-                    f"{self.cre_workflow_url}/score-proposal",
-                    json={"proposalId": str(proposal_id), "parkId": park_id},
-                )
-                if response.status_code == 200:
-                    logger.info(
-                        f"CRE scoring triggered for proposal #{proposal_id} (park: {park_id})"
-                    )
-                else:
-                    logger.warning(
-                        f"CRE workflow returned {response.status_code} for proposal #{proposal_id}"
-                    )
+            test_dir = os.path.join(self.cre_workflow_dir, "test")
+
+            # HTTP trigger payload
+            payload_path = os.path.join(test_dir, "score-proposal-payload.json")
+            with open(payload_path, "w") as f:
+                json.dump({"proposalId": str(proposal_id), "parkId": park_id}, f, indent=2)
+
+            # EVM trigger tx hash
+            if tx_hash:
+                tx_path = os.path.join(test_dir, "last-tx-hash.txt")
+                with open(tx_path, "w") as f:
+                    f.write(tx_hash)
+
+            logger.info(
+                f"[CRE local] Payload updated — proposal #{proposal_id} (park: {park_id})\n"
+                f"  HTTP:  npm run simulate:score\n"
+                f"  EVM:   npm run simulate:evm {tx_hash or '<tx-hash>'}"
+            )
         except Exception as e:
-            # Non-fatal — the proposal was already created on-chain
-            logger.warning(f"CRE scoring trigger failed (non-fatal): {e}")
+            logger.warning(f"[CRE local] Failed to update payload (non-fatal): {e}")
 
     async def _generate_blockchain_summary(self, full_summary: str, analysis_data: Dict) -> str:
         try:

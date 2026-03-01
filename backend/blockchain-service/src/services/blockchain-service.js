@@ -266,6 +266,17 @@ export class BlockchainService {
     };
   }
 
+  async setEnvironmentalScore(proposalId, score, urgencyLevel, insight) {
+    if (!this.contract) throw new Error('Contract not deployed');
+    const tx = await this.contract.setEnvironmentalScore(proposalId, score, urgencyLevel, insight);
+    const receipt = await tx.wait();
+    return {
+      success: true,
+      transactionHash: receipt.hash,
+      explorerUrl: `${this.explorerBase}/tx/${receipt.hash}`
+    };
+  }
+
   async getUserBalances(userAddress) {
     const ethBalance = await this.provider.getBalance(userAddress);
     return {

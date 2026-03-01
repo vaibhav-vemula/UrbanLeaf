@@ -72,7 +72,7 @@ UrbanLeaf/
 ├── backend/
 │   ├── main.py                  # FastAPI — AI agent + proposals API (port 4000)
 │   ├── agent.py                 # Gemini intent classification + proposal flow
-│   ├── blockchain.py            # Python → blockchain-service + CRE HTTP trigger
+│   ├── blockchain.py            # Python → blockchain-service + CRE trigger
 │   ├── database.py              # Supabase queries + environmental analysis
 │   └── blockchain-service/      # Node.js contract service (port 5000)
 │       ├── contracts/
@@ -80,15 +80,18 @@ UrbanLeaf/
 │       ├── scripts/             # deploy-contract.js
 │       └── src/                 # Express API + ethers.js
 └── cre-workflow/                # Chainlink Runtime Environment
-    ├── src/
-    │   ├── scoring.ts           # Shared pipeline: fetch → AI → on-chain write
-    │   ├── evm-score-proposal.ts  # Workflow 1: EVM Log trigger (autonomous)
-    │   ├── score-proposal.ts    # Workflow 2: HTTP trigger (backend-initiated)
-    │   └── auto-close.ts        # Workflow 3: Cron trigger (daily midnight)
+    ├── evm-score-proposal/      # Workflow 1: EVM Log trigger (autonomous)
+    │   ├── workflow.yaml
+    │   └── src/workflow.ts
+    ├── score-proposal/          # Workflow 2: HTTP trigger (backend-initiated)
+    │   ├── workflow.yaml
+    │   └── src/workflow.ts
+    ├── auto-close/              # Workflow 3: Cron trigger (daily midnight)
+    │   ├── workflow.yaml
+    │   └── src/workflow.ts
     ├── test/
-    │   ├── evm-proposal-created.json   # EVM simulation payload
-    │   └── score-proposal-payload.json # HTTP simulation payload
-    ├── settings.yaml            # CRE CLI workflow registry
+    │   ├── score-proposal-payload.json  # auto-updated on proposal creation
+    │   └── last-tx-hash.txt             # auto-updated on proposal creation
     └── .env.example
 ```
 
@@ -151,26 +154,25 @@ brew install smartcontractkit/tap/cre-cli
 
 cd cre-workflow
 cp .env.example .env   # fill in keys
-npm install
+npm run install:all    # installs deps in all three workflow folders
 
 # Workflow 1 — EVM Log trigger
-npm run simulate:evm
-# or:
-cre workflow simulate evm-score-proposal \
+# Needs a real ProposalCreated tx hash from Arbiscan
+cre workflow simulate ./evm-score-proposal \
   --non-interactive --trigger-index 0 \
-  --evm-log-payload @./test/evm-proposal-created.json
+  --evm-tx-hash 0xYourProposalCreatedTxHash
 
 # Workflow 2 — HTTP trigger
 npm run simulate:score
 # or:
-cre workflow simulate score-proposal \
+cre workflow simulate ./score-proposal \
   --non-interactive --trigger-index 0 \
   --http-payload @./test/score-proposal-payload.json
 
 # Workflow 3 — Cron trigger
 npm run simulate:autoclose
 # or:
-cre workflow simulate auto-close \
+cre workflow simulate ./auto-close \
   --non-interactive --trigger-index 0
 ```
 
@@ -256,8 +258,10 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-supabase-anon-key
 PORT=4000
 
-# CRE HTTP trigger URL — set after deploying, leave blank to skip
+# CRE — leave CRE_WORKFLOW_URL blank locally
+# Set CRE_WORKFLOW_DIR so simulate payloads are auto-updated on proposal creation
 CRE_WORKFLOW_URL=
+CRE_WORKFLOW_DIR=/path/to/UrbanLeaf/cre-workflow
 ```
 
 **Blockchain service** (`backend/blockchain-service/.env`):
@@ -365,17 +369,21 @@ make frontend
 
 Open [http://localhost:3000](http://localhost:3000).
 
-Simulate the CRE workflows in separate terminals:
+After creating a proposal via the frontend, the backend automatically updates
+`cre-workflow/test/score-proposal-payload.json` and `cre-workflow/test/last-tx-hash.txt`
+with the real `proposalId`, `parkId`, and tx hash. Then run:
 
 ```bash
-# Terminal 4 — EVM Log trigger (autonomous scorer)
-cd cre-workflow && npm run simulate:evm
+cd cre-workflow
 
-# Terminal 5 — HTTP trigger (backend-initiated scorer)
-cd cre-workflow && npm run simulate:score
+# Score the proposal (HTTP trigger)
+npm run simulate:score
 
-# Terminal 6 — Cron trigger (daily auto-close)
-cd cre-workflow && npm run simulate:autoclose
+# Score via EVM Log trigger (uses auto-saved tx hash)
+npm run simulate:evm
+
+# Close expired proposals (Cron trigger)
+npm run simulate:autoclose
 ```
 
 ---
@@ -388,8 +396,9 @@ cd cre-workflow && npm run simulate:autoclose
 4. **Create proposal** (authorized users only):
    - Agent collects environmental analysis + fundraising settings
    - Proposal written to Arbitrum Sepolia → `ProposalCreated` event emitted
-   - **CRE `evm-score-proposal` fires autonomously** — decodes event, fetches live env data, calls Gemini AI, writes urgency score (0–100) back on-chain
-   - Backend also fires `score-proposal` HTTP trigger as a fallback
+   - Backend auto-updates CRE simulate payloads with the new `proposalId` + tx hash
+   - **Locally:** run `npm run simulate:score` or `npm run simulate:evm` to trigger scoring
+   - **Production:** CRE `evm-score-proposal` fires autonomously — decodes event, fetches live env data, calls Gemini AI, writes urgency score (0–100) back on-chain
 5. **Vote** on proposals — AI urgency badge (Critical / High / Medium / Low) visible on every card
 6. **Proposals auto-close** — CRE `auto-close` cron runs daily at midnight, tallies votes, calls `updateProposalStatus()` on-chain
 7. **Donate ETH** to accepted proposals to fund preservation
