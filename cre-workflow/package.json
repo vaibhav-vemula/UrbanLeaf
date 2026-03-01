@@ -1,0 +1,19 @@
+{
+  "name": "urbanleaf-cre-workflow",
+  "version": "1.0.0",
+  "description": "Chainlink Runtime Environment workflows for UrbanLeaf AI — AI-powered environmental scoring and automated proposal lifecycle management",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "simulate:score": "cre workflow simulate score-proposal --non-interactive --trigger-index 0 --http-payload @./test/score-proposal-payload.json",
+    "simulate:evm": "cre workflow simulate evm-score-proposal --non-interactive --trigger-index 0 --evm-log-payload @./test/evm-proposal-created.json",
+    "simulate:autoclose": "cre workflow simulate auto-close --non-interactive --trigger-index 0"
+  },
+  "dependencies": {
+    "@chainlink/cre-sdk": "latest"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}

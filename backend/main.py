@@ -240,6 +240,35 @@ async def create_proposal(proposal_data: dict):
         logger.error(f"Error creating proposal: {e}")
         return {"success": False, "error": str(e)}
 
+@app.get("/api/park-environmental-data/{park_id}")
+async def get_park_environmental_data(park_id: str):
+    """
+    Environmental data endpoint consumed by the CRE workflow.
+    Returns NDVI, PM2.5, affected population and demographics for Gemini AI scoring.
+    """
+    try:
+        impact = await analyze_park_removal_impact(park_id, "removed")
+        if not impact:
+            raise HTTPException(status_code=404, detail=f"Park {park_id} not found")
+
+        return {
+            "parkId": park_id,
+            "parkName": impact.get("parkName", "Unknown Park"),
+            "ndvi": impact.get("ndviBefore"),
+            "pm25": impact.get("pm25Before"),
+            "vegetationLossPercent": round(
+                (impact.get("ndviBefore", 0) - impact.get("ndviAfter", 0)) * 100, 1
+            ) if impact.get("ndviBefore") and impact.get("ndviAfter") else 0,
+            "pm25IncreasePercent": impact.get("pm25IncreasePercent", 0),
+            "affectedPopulation": impact.get("affectedPopulation10MinWalk", 0),
+            "demographics": impact.get("demographics", {}),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching environmental data for park {park_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/user-balances")
 async def get_user_balances(address: str):
     """Get user ETH balance on Arbitrum Sepolia"""

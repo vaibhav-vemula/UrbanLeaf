@@ -78,8 +78,25 @@ export class BlockchainService {
     );
 
     const receipt = await tx.wait();
+
+    // Extract the proposalId from the ProposalCreated event so the backend
+    // can pass it to the CRE scoring workflow
+    let proposalId = null;
+    for (const log of receipt.logs) {
+      try {
+        const parsed = this.contract.interface.parseLog(log);
+        if (parsed && parsed.name === 'ProposalCreated') {
+          proposalId = Number(parsed.args.proposalId);
+          break;
+        }
+      } catch {
+        // log not from this contract — skip
+      }
+    }
+
     return {
       success: true,
+      proposalId,
       transactionHash: receipt.hash,
       status: receipt.status === 1 ? 'SUCCESS' : 'FAILED',
       explorerUrl: `${this.explorerBase}/tx/${receipt.hash}`
@@ -134,7 +151,12 @@ export class BlockchainService {
           creator: proposal.creatorAccountId,
           fundingGoal: Number(proposal.fundingGoal),
           totalFundsRaised: Number(proposal.totalFundsRaised),
-          fundingEnabled: Boolean(proposal.fundingEnabled)
+          fundingEnabled: Boolean(proposal.fundingEnabled),
+          // CRE AI score fields — written on-chain by the CRE scoring workflows
+          aiEnvironmentalScore: Number(proposal.aiEnvironmentalScore),
+          aiUrgencyLevel: proposal.aiUrgencyLevel,
+          aiInsight: proposal.aiInsight,
+          aiScored: Boolean(proposal.aiScored)
         }
       };
     } catch (error) {

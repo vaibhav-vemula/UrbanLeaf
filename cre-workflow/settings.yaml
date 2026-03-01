@@ -1,0 +1,37 @@
+# CRE workflow settings for UrbanLeaf AI
+# Secrets are loaded from environment variables — never hardcode API keys here.
+
+version: "1.0"
+
+workflows:
+  - name: score-proposal
+    file: src/score-proposal.ts
+    description: "HTTP trigger: backend calls this after creating a proposal on-chain"
+
+  - name: evm-score-proposal
+    file: src/evm-score-proposal.ts
+    description: "EVM Log trigger: autonomous — fires on ProposalCreated, no backend needed"
+
+  - name: auto-close
+    file: src/auto-close.ts
+    description: "Cron trigger (daily midnight): auto-closes expired proposals on-chain"
+
+secrets:
+  # UrbanLeaf FastAPI backend — the CRE workflow fetches park environmental data here
+  URBANLEAF_API_URL:
+    env: URBANLEAF_API_URL
+    description: "UrbanLeaf FastAPI base URL (e.g. http://localhost:4000)"
+
+  # Gemini AI
+  GEMINI_API_KEY:
+    env: GEMINI_API_KEY
+    description: "Google AI Studio API key for Gemini 2.0 Flash"
+
+  # Arbitrum Sepolia
+  ARBITRUM_SEPOLIA_RPC_URL:
+    env: ARBITRUM_SEPOLIA_RPC_URL
+    description: "Arbitrum Sepolia RPC endpoint"
+
+  CONTRACT_ADDRESS:
+    env: CONTRACT_ADDRESS
+    description: "UrbanLeafCommunity.sol deployed address on Arbitrum Sepolia"

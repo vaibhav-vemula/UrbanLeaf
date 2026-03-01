@@ -1,0 +1,13 @@
+{
+  "blockNumber": "12345678",
+  "blockHash": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+  "transactionHash": "0xdeadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678",
+  "logIndex": 0,
+  "args": {
+    "proposalId": "1",
+    "parkName": "Lincoln Park",
+    "parkId": "park_001",
+    "endDate": "1777777777",
+    "creatorAccountId": "0x1234567890abcdef1234567890abcdef12345678"
+  }
+}

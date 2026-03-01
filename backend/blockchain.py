@@ -10,12 +10,15 @@ logger = logging.getLogger(__name__)
 class BlockchainService:
     def __init__(self):
         self.service_url = os.getenv('BLOCKCHAIN_SERVICE_URL', 'http://localhost:5000')
+        self.cre_workflow_url = os.getenv('CRE_WORKFLOW_URL', '')
         self.network = 'arbitrum_sepolia'
         self.explorer_base = 'https://sepolia.arbiscan.io'
         self.timeout = httpx.Timeout(30.0, connect=10.0)
 
         logger.info(f"Blockchain Service URL: {self.service_url}")
         logger.info(f"Network: {self.network}")
+        if self.cre_workflow_url:
+            logger.info(f"CRE Workflow URL: {self.cre_workflow_url}")
 
     async def is_connected(self) -> bool:
         try:
@@ -115,13 +118,20 @@ class BlockchainService:
                 result = response.json()
 
             if result.get('success'):
+                proposal_id = result.get('proposalId', result.get('proposal_id', 0))
+                park_id = proposal_data.get('parkId', '')
+
+                # Trigger CRE environmental scoring workflow (fire-and-forget)
+                await self._trigger_cre_scoring(proposal_id, park_id)
+
                 return {
                     'success': True,
-                    'proposal_id': result.get('proposalId', result.get('proposal_id', 0)),
+                    'proposal_id': proposal_id,
                     'transaction_hash': result.get('transactionHash'),
                     'status': result.get('status'),
                     'explorer_url': f"{self.explorer_base}/tx/{result.get('transactionHash')}",
-                    'email_summary': blockchain_summary
+                    'email_summary': blockchain_summary,
+                    'cre_scoring': 'triggered' if self.cre_workflow_url else 'not_configured',
                 }
             else:
                 return {'success': False, 'error': result.get('error', 'Unknown error')}
@@ -278,6 +288,34 @@ class BlockchainService:
             logger.error(f"Failed to get user balances: {e}")
             return {'success': False, 'error': str(e)}
 
+    async def _trigger_cre_scoring(self, proposal_id: int, park_id: str) -> None:
+        """
+        Fire-and-forget call to the CRE score-proposal workflow HTTP trigger.
+        CRE then fetches live environmental data, calls Gemini AI, and writes
+        the urgency score back on-chain via setEnvironmentalScore().
+        """
+        if not self.cre_workflow_url:
+            logger.info("CRE_WORKFLOW_URL not set — skipping CRE environmental scoring")
+            return
+
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+                response = await client.post(
+                    f"{self.cre_workflow_url}/score-proposal",
+                    json={"proposalId": str(proposal_id), "parkId": park_id},
+                )
+                if response.status_code == 200:
+                    logger.info(
+                        f"CRE scoring triggered for proposal #{proposal_id} (park: {park_id})"
+                    )
+                else:
+                    logger.warning(
+                        f"CRE workflow returned {response.status_code} for proposal #{proposal_id}"
+                    )
+        except Exception as e:
+            # Non-fatal — the proposal was already created on-chain
+            logger.warning(f"CRE scoring trigger failed (non-fatal): {e}")
+
     async def _generate_blockchain_summary(self, full_summary: str, analysis_data: Dict) -> str:
         try:
             from google import genai
@@ -350,4 +388,9 @@ Return only the factual summary."""
             'fundingEnabled': proposal.get('fundingEnabled', False),
             'fundingGoal': proposal.get('fundingGoal', 0),
             'totalFundsRaised': proposal.get('totalFundsRaised', 0),
+            # CRE AI score fields
+            'aiEnvironmentalScore': proposal.get('aiEnvironmentalScore', 0),
+            'aiUrgencyLevel': proposal.get('aiUrgencyLevel', ''),
+            'aiInsight': proposal.get('aiInsight', ''),
+            'aiScored': proposal.get('aiScored', False),
         }

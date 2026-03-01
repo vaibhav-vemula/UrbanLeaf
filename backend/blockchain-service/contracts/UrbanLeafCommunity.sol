@@ -11,6 +11,13 @@ contract UrbanLeafCommunity {
         string creatorAccountId
     );
 
+    event EnvironmentalScoreSet(
+        uint64 indexed proposalId,
+        uint8 score,
+        string urgencyLevel,
+        string insight
+    );
+
     event VoteCast(
         uint64 indexed proposalId,
         address indexed voter,
@@ -86,6 +93,11 @@ contract UrbanLeafCommunity {
         uint256 fundingGoal;
         uint256 totalFundsRaised;
         bool fundingEnabled;
+        // CRE AI scoring fields — written by the CRE workflow after proposal creation
+        uint8 aiEnvironmentalScore;  // 0-100 urgency score from Gemini AI via CRE
+        string aiUrgencyLevel;       // "Critical" | "High" | "Medium" | "Low"
+        string aiInsight;            // One-line AI-generated insight
+        bool aiScored;               // true once CRE has scored this proposal
     }
 
     mapping(uint64 => Proposal) public proposals;
@@ -447,6 +459,54 @@ contract UrbanLeafCommunity {
         returns (uint256)
     {
         return userDonationTotal[proposalId][user];
+    }
+
+    // -------------------------------------------------------------------------
+    // CRE Workflow Functions
+    // Called by the Chainlink Runtime Environment worker wallet (owner key)
+    // -------------------------------------------------------------------------
+
+    /**
+     * @notice Set the AI-generated environmental urgency score for a proposal.
+     *         Called by the CRE "create-proposal" or "auto-score" workflow after
+     *         fetching live NDVI / air-quality data and running Gemini AI analysis.
+     * @param proposalId  The proposal to score
+     * @param score       0-100 urgency score (100 = most critical)
+     * @param urgencyLevel "Critical" | "High" | "Medium" | "Low"
+     * @param insight     One-sentence AI-generated insight for community members
+     */
+    function setEnvironmentalScore(
+        uint64 proposalId,
+        uint8 score,
+        string memory urgencyLevel,
+        string memory insight
+    ) public onlyOwner proposalExists(proposalId) {
+        require(score <= 100, "Score must be between 0 and 100");
+
+        proposals[proposalId].aiEnvironmentalScore = score;
+        proposals[proposalId].aiUrgencyLevel = urgencyLevel;
+        proposals[proposalId].aiInsight = insight;
+        proposals[proposalId].aiScored = true;
+
+        emit EnvironmentalScoreSet(proposalId, score, urgencyLevel, insight);
+    }
+
+    /**
+     * @notice Returns the CRE AI score for a proposal.
+     */
+    function getEnvironmentalScore(uint64 proposalId)
+        public
+        view
+        proposalExists(proposalId)
+        returns (
+            uint8 score,
+            string memory urgencyLevel,
+            string memory insight,
+            bool scored
+        )
+    {
+        Proposal storage p = proposals[proposalId];
+        return (p.aiEnvironmentalScore, p.aiUrgencyLevel, p.aiInsight, p.aiScored);
     }
 
     receive() external payable {}

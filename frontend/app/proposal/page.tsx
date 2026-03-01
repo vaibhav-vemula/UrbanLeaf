@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ArrowLeft, ThumbsUp, ThumbsDown, Clock, CheckCircle2, XCircle, X, Loader2, TrendingDown, Users, Leaf, DollarSign, Target, TrendingUp } from 'lucide-react';
+import { ArrowLeft, ThumbsUp, ThumbsDown, Clock, CheckCircle2, XCircle, X, Loader2, TrendingDown, Users, Leaf, DollarSign, Target, TrendingUp, Brain, AlertTriangle, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useWallet } from '@/components/providers/WalletProvider';
 import { getProposals, getProposalDetails, getDonationProgress } from '@/lib/api';
@@ -41,6 +41,10 @@ interface Proposal {
     seniors: number;
     totalAffectedPopulation: number;
   };
+  aiEnvironmentalScore?: number;
+  aiUrgencyLevel?: string;
+  aiInsight?: string;
+  aiScored?: boolean;
 }
 
 interface DonationProgress {
@@ -264,6 +268,26 @@ export default function ProposalPage() {
     }
   };
 
+  const getUrgencyStyle = (level?: string) => {
+    switch (level) {
+      case 'Critical': return { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/40', bar: 'from-red-500 to-red-600' };
+      case 'High':     return { bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/40', bar: 'from-orange-500 to-amber-500' };
+      case 'Medium':   return { bg: 'bg-yellow-500/20', text: 'text-yellow-400', border: 'border-yellow-500/40', bar: 'from-yellow-500 to-yellow-400' };
+      case 'Low':      return { bg: 'bg-teal-500/20', text: 'text-teal-400', border: 'border-teal-500/40', bar: 'from-teal-500 to-emerald-500' };
+      default:         return { bg: 'bg-slate-700/40', text: 'text-slate-400', border: 'border-slate-600/40', bar: 'from-slate-500 to-slate-400' };
+    }
+  };
+
+  const getUrgencyIcon = (level?: string) => {
+    switch (level) {
+      case 'Critical': return <ShieldAlert size={14} />;
+      case 'High':     return <AlertTriangle size={14} />;
+      case 'Medium':   return <Brain size={14} />;
+      case 'Low':      return <ShieldCheck size={14} />;
+      default:         return <Brain size={14} />;
+    }
+  };
+
   // Filter proposals based on active tab
   const filteredProposals = proposals.filter(proposal => {
     const status = normalizeStatus(proposal.status);
@@ -387,7 +411,7 @@ export default function ProposalPage() {
                   {/* Header */}
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
+                      <div className="flex items-center gap-3 mb-2 flex-wrap">
                         <h3 className="text-2xl font-bold text-gray-100 group-hover:text-emerald-400 transition-colors">
                           {proposal.parkName}
                         </h3>
@@ -395,6 +419,18 @@ export default function ProposalPage() {
                           {getStatusIcon(normalizeStatus(proposal.status))}
                           {normalizeStatus(proposal.status).charAt(0).toUpperCase() + normalizeStatus(proposal.status).slice(1)}
                         </span>
+                        {/* CRE AI Urgency Badge */}
+                        {proposal.aiScored ? (
+                          <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border ${getUrgencyStyle(proposal.aiUrgencyLevel).bg} ${getUrgencyStyle(proposal.aiUrgencyLevel).text} ${getUrgencyStyle(proposal.aiUrgencyLevel).border}`}>
+                            {getUrgencyIcon(proposal.aiUrgencyLevel)}
+                            {proposal.aiUrgencyLevel} · {proposal.aiEnvironmentalScore}/100
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-slate-700/40 text-slate-400 border-slate-600/40">
+                            <Brain size={12} className="animate-pulse" />
+                            CRE Analyzing…
+                          </span>
+                        )}
                       </div>
                       <p className="text-gray-400 leading-relaxed line-clamp-2 mb-3">{proposal.description}</p>
                     </div>
@@ -560,6 +596,65 @@ export default function ProposalPage() {
                   <TrendingUp size={20} />
                   Donate to This Proposal
                 </button>
+              </div>
+            )}
+
+            {/* CRE AI Analysis */}
+            {selectedProposal.aiScored ? (
+              <div className="mb-6">
+                <div className={`rounded-xl p-5 border ${getUrgencyStyle(selectedProposal.aiUrgencyLevel).bg} ${getUrgencyStyle(selectedProposal.aiUrgencyLevel).border}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Brain size={18} className={getUrgencyStyle(selectedProposal.aiUrgencyLevel).text} />
+                      <span className={`text-sm font-bold uppercase tracking-wide ${getUrgencyStyle(selectedProposal.aiUrgencyLevel).text}`}>
+                        CRE AI Analysis
+                      </span>
+                    </div>
+                    <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-bold border ${getUrgencyStyle(selectedProposal.aiUrgencyLevel).bg} ${getUrgencyStyle(selectedProposal.aiUrgencyLevel).text} ${getUrgencyStyle(selectedProposal.aiUrgencyLevel).border}`}>
+                      {getUrgencyIcon(selectedProposal.aiUrgencyLevel)}
+                      {selectedProposal.aiUrgencyLevel}
+                    </span>
+                  </div>
+
+                  {/* Score Bar */}
+                  <div className="mb-3">
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className="text-xs text-gray-400">Environmental Urgency Score</span>
+                      <span className={`text-2xl font-black ${getUrgencyStyle(selectedProposal.aiUrgencyLevel).text}`}>
+                        {selectedProposal.aiEnvironmentalScore}<span className="text-sm font-normal text-gray-500">/100</span>
+                      </span>
+                    </div>
+                    <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full bg-gradient-to-r ${getUrgencyStyle(selectedProposal.aiUrgencyLevel).bar} rounded-full transition-all duration-700`}
+                        style={{ width: `${selectedProposal.aiEnvironmentalScore}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+                      <span>Low</span><span>Medium</span><span>High</span><span>Critical</span>
+                    </div>
+                  </div>
+
+                  {/* AI Insight */}
+                  {selectedProposal.aiInsight && (
+                    <p className="text-sm text-gray-300 italic leading-relaxed">
+                      "{selectedProposal.aiInsight}"
+                    </p>
+                  )}
+
+                  <p className="text-[10px] text-gray-600 mt-3 flex items-center gap-1">
+                    <span>⬡</span>
+                    Scored by Chainlink CRE · Gemini 2.0 Flash · Written on-chain
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="mb-6 rounded-xl p-4 border border-slate-700 bg-slate-800/40 flex items-center gap-3">
+                <Brain size={20} className="text-slate-500 animate-pulse shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-slate-400">CRE AI Analysis Pending</p>
+                  <p className="text-xs text-slate-500">The Chainlink CRE workflow is processing environmental data for this proposal.</p>
+                </div>
               </div>
             )}
 
