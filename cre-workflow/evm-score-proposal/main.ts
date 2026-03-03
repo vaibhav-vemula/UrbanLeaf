@@ -3,9 +3,12 @@
  *
  * Trigger: EVM Log — fires when ProposalCreated is emitted on Arbitrum Sepolia
  *
- * The fully autonomous workflow. The CRE DON watches UrbanLeafCommunity.sol
- * directly. The moment a proposal is created on-chain, CRE decodes the event,
- * scores it with Gemini AI, and writes the result back on-chain.
+ * Pipeline:
+ *   1. Decode proposalId + parkId from the ProposalCreated event
+ *   2. Fetch live NDVI + air quality from UrbanLeaf FastAPI
+ *   3. Gemini 2.0 Flash → urgency score (0-100) + level + insight
+ *   4. runtime.report() → DON-signed report
+ *   5. evmClient.writeReport() → calls onReport() on UrbanLeafCommunity.sol directly
  *
  * Event: ProposalCreated(uint64 indexed proposalId, string parkName,
  *                        string parkId, uint256 endDate, string creatorAccountId)
@@ -24,7 +27,7 @@ import {
   Runner,
   type Runtime,
 } from '@chainlink/cre-sdk'
-import { decodeAbiParameters } from 'viem'
+import { decodeAbiParameters, encodeAbiParameters, parseAbiParameters } from 'viem'
 import { z } from 'zod'
 
 // ---------------------------------------------------------------------------
@@ -33,9 +36,9 @@ import { z } from 'zod'
 
 const configSchema = z.object({
   urbanleafApiUrl: z.string(),
-  blockchainServiceUrl: z.string(),
   contractAddress: z.string(),
   chainSelectorName: z.string(),
+  gasLimit: z.string(),
 })
 
 type Config = z.infer<typeof configSchema>
@@ -63,13 +66,12 @@ interface ScoringResult {
 }
 
 // ---------------------------------------------------------------------------
-// Scoring pipeline
+// Scoring pipeline (runs inside sendRequest node mode)
 // ---------------------------------------------------------------------------
 
 const runScoring = (
   sendRequester: HTTPSendRequester,
   urbanleafApiUrl: string,
-  blockchainServiceUrl: string,
   geminiApiKey: string,
   proposalId: string,
   parkId: string,
@@ -124,27 +126,6 @@ const runScoring = (
 
   const score = Math.min(100, Math.max(0, Math.round(ai.score)))
 
-  // Step 3: Write score via blockchain-service
-  const writeBody = JSON.stringify({
-    proposalId,
-    score,
-    urgencyLevel: ai.urgencyLevel,
-    insight: ai.insight.substring(0, 256),
-  })
-
-  const writeRes = sendRequester
-    .sendRequest({
-      method: 'POST',
-      url: `${blockchainServiceUrl}/api/contract/set-environmental-score`,
-      headers: { 'Content-Type': 'application/json' },
-      body: Buffer.from(writeBody).toString('base64'),
-    })
-    .result()
-
-  if (!ok(writeRes)) {
-    throw new Error(`Blockchain service error: ${writeRes.statusCode}`)
-  }
-
   return {
     proposalId,
     parkId,
@@ -181,6 +162,7 @@ const onLogTrigger = (runtime: Runtime<Config>, payload: EVMLog): string => {
 
   const geminiApiKey = runtime.getSecret({ id: 'GEMINI_API_KEY' }).result().value
 
+  // Step 1+2: Fetch env data + Gemini score (DON consensus across nodes)
   const httpClient = new cre.capabilities.HTTPClient()
 
   const result = httpClient
@@ -190,7 +172,6 @@ const onLogTrigger = (runtime: Runtime<Config>, payload: EVMLog): string => {
         runScoring(
           sendRequester,
           runtime.config.urbanleafApiUrl,
-          runtime.config.blockchainServiceUrl,
           geminiApiKey,
           proposalId,
           parkId,
@@ -200,10 +181,51 @@ const onLogTrigger = (runtime: Runtime<Config>, payload: EVMLog): string => {
     .result()
 
   runtime.log(
-    `[UrbanLeaf CRE] Score written on-chain: ${result.aiScore}/100 (${result.urgencyLevel}) — "${result.insight}"`,
+    `[UrbanLeaf CRE] Score computed: ${result.aiScore}/100 (${result.urgencyLevel}) — "${result.insight}"`,
   )
 
-  return JSON.stringify({ ...result, trigger: 'evm-log', status: 'scored' })
+  // Step 3: ABI-encode the score for the on-chain report
+  const reportData = encodeAbiParameters(
+    parseAbiParameters('uint64 proposalId, uint8 score, string urgencyLevel, string insight'),
+    [BigInt(proposalId), result.aiScore, result.urgencyLevel, result.insight.substring(0, 256)],
+  )
+
+  // Step 4: Generate DON-signed report
+  const reportResponse = runtime
+    .report({
+      encodedPayload: hexToBase64(reportData),
+      encoderName: 'evm',
+      signingAlgo: 'ecdsa',
+      hashingAlgo: 'keccak256',
+    })
+    .result()
+
+  // Step 5: Submit report directly to the contract via Chainlink forwarder
+  const network = getNetwork({
+    chainFamily: 'evm',
+    chainSelectorName: runtime.config.chainSelectorName,
+    isTestnet: true,
+  })
+
+  if (!network) {
+    throw new Error(`Network not found: ${runtime.config.chainSelectorName}`)
+  }
+
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector)
+
+  const writeResult = evmClient
+    .writeReport(runtime, {
+      receiver: runtime.config.contractAddress,
+      report: reportResponse,
+      gasConfig: { gasLimit: runtime.config.gasLimit },
+    })
+    .result()
+
+  const txHash = bytesToHex(writeResult.txHash ?? new Uint8Array(32))
+
+  runtime.log(`[UrbanLeaf CRE] Score written on-chain via forwarder: ${txHash}`)
+
+  return JSON.stringify({ ...result, txHash, trigger: 'evm-log', status: 'scored' })
 }
 
 // ---------------------------------------------------------------------------

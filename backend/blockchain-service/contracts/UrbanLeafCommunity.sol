@@ -107,6 +107,7 @@ contract UrbanLeafCommunity {
     mapping(uint64 => mapping(address => uint256)) public userDonationTotal;
     uint64 public proposalCounter;
     address public owner;
+    address public forwarderAddress;
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner can call this function");
@@ -133,8 +134,9 @@ contract UrbanLeafCommunity {
         _;
     }
 
-    constructor() {
+    constructor(address _forwarderAddress) {
         owner = msg.sender;
+        forwarderAddress = _forwarderAddress;
         proposalCounter = 0;
         emit ContractInitialized(msg.sender);
     }
@@ -467,28 +469,41 @@ contract UrbanLeafCommunity {
     // -------------------------------------------------------------------------
 
     /**
-     * @notice Set the AI-generated environmental urgency score for a proposal.
-     *         Called by the CRE "create-proposal" or "auto-score" workflow after
-     *         fetching live NDVI / air-quality data and running Gemini AI analysis.
-     * @param proposalId  The proposal to score
-     * @param score       0-100 urgency score (100 = most critical)
-     * @param urgencyLevel "Critical" | "High" | "Medium" | "Low"
-     * @param insight     One-sentence AI-generated insight for community members
+     * @notice Called by the Chainlink CRE forwarder with a DON-attested AI score report.
+     *         The report bytes are ABI-encoded as (uint64 proposalId, uint8 score,
+     *         string urgencyLevel, string insight).
+     */
+    function onReport(bytes calldata metadata, bytes calldata report) external {
+        require(msg.sender == forwarderAddress, "Only CRE forwarder can submit reports");
+        (uint64 proposalId, uint8 score, string memory urgencyLevel, string memory insight) =
+            abi.decode(report, (uint64, uint8, string, string));
+        _applyEnvironmentalScore(proposalId, score, urgencyLevel, insight);
+    }
+
+    function _applyEnvironmentalScore(
+        uint64 proposalId,
+        uint8 score,
+        string memory urgencyLevel,
+        string memory insight
+    ) internal proposalExists(proposalId) {
+        require(score <= 100, "Score must be between 0 and 100");
+        proposals[proposalId].aiEnvironmentalScore = score;
+        proposals[proposalId].aiUrgencyLevel = urgencyLevel;
+        proposals[proposalId].aiInsight = insight;
+        proposals[proposalId].aiScored = true;
+        emit EnvironmentalScoreSet(proposalId, score, urgencyLevel, insight);
+    }
+
+    /**
+     * @notice Owner-callable fallback for setting the score manually (admin use).
      */
     function setEnvironmentalScore(
         uint64 proposalId,
         uint8 score,
         string memory urgencyLevel,
         string memory insight
-    ) public onlyOwner proposalExists(proposalId) {
-        require(score <= 100, "Score must be between 0 and 100");
-
-        proposals[proposalId].aiEnvironmentalScore = score;
-        proposals[proposalId].aiUrgencyLevel = urgencyLevel;
-        proposals[proposalId].aiInsight = insight;
-        proposals[proposalId].aiScored = true;
-
-        emit EnvironmentalScoreSet(proposalId, score, urgencyLevel, insight);
+    ) public onlyOwner {
+        _applyEnvironmentalScore(proposalId, score, urgencyLevel, insight);
     }
 
     /**

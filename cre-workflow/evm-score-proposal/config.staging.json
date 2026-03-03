@@ -1,6 +1,6 @@
 {
   "urbanleafApiUrl": "http://localhost:4000",
-  "blockchainServiceUrl": "http://localhost:5000",
-  "contractAddress": "0x6e3889b6Fe30563c1e43547853982FFD4F2d1D0c",
-  "chainSelectorName": "ethereum-testnet-sepolia-arbitrum-1"
+  "contractAddress": "0xe8D5181360E691B31e824BC3399D0E1e17117AFb",
+  "chainSelectorName": "ethereum-testnet-sepolia-arbitrum-1",
+  "gasLimit": "500000"
 }

@@ -42,10 +42,15 @@ async function main() {
     throw new Error('Contract bytecode is empty. Make sure the contract compiled successfully.');
   }
 
+  // Forwarder address: MockKeystoneForwarder for simulation, KeystoneForwarder for production
+  // Arbitrum Sepolia simulation:  0xd41263567ddfead91504199b8c6c87371e83ca5d
+  // Arbitrum Sepolia production:  0x76c9cf548b4179F8901cda1f8623568b58215E62
+  const forwarderAddress = process.env.FORWARDER_ADDRESS || '0xd41263567ddfead91504199b8c6c87371e83ca5d';
+  console.log(`Forwarder: ${forwarderAddress}`);
   console.log('Deploying contract...\n');
 
   const factory = new ethers.ContractFactory(abi, bytecode, wallet);
-  const contract = await factory.deploy();
+  const contract = await factory.deploy(forwarderAddress);
   await contract.waitForDeployment();
 
   const contractAddress = await contract.getAddress();
