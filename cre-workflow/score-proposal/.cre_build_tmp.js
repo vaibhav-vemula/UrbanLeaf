@@ -15732,11 +15732,12 @@ function getArrayComponents(type) {
 }
 var configSchema = exports_external.object({
   urbanleafApiUrl: exports_external.string(),
+  blockchainServiceUrl: exports_external.string(),
   contractAddress: exports_external.string(),
   chainSelectorName: exports_external.string(),
-  gasLimit: exports_external.string().default("500000")
+  gasLimit: exports_external.string()
 });
-var runScoring = (sendRequester, urbanleafApiUrl, geminiApiKey, proposalId, parkId) => {
+var runScoring = (sendRequester, urbanleafApiUrl, blockchainServiceUrl, geminiApiKey, proposalId, parkId) => {
   const envRes = sendRequester.sendRequest({ method: "GET", url: `${urbanleafApiUrl}/api/park-environmental-data/${parkId}` }).result();
   if (!ok(envRes)) {
     throw new Error(`UrbanLeaf API error: ${envRes.statusCode}`);
@@ -15769,13 +15770,26 @@ var runScoring = (sendRequester, urbanleafApiUrl, geminiApiKey, proposalId, park
   const geminiData = json(geminiRes);
   const ai = JSON.parse(geminiData.candidates[0].content.parts[0].text);
   const score = Math.min(100, Math.max(0, Math.round(ai.score)));
+  const insight = ai.insight.substring(0, 256);
+  const setScoreBody = JSON.stringify({
+    proposalId,
+    score,
+    urgencyLevel: ai.urgencyLevel,
+    insight
+  });
+  sendRequester.sendRequest({
+    method: "POST",
+    url: `${blockchainServiceUrl}/api/contract/set-environmental-score`,
+    headers: { "Content-Type": "application/json" },
+    body: Buffer.from(setScoreBody).toString("base64")
+  }).result();
   return {
     proposalId,
     parkId,
     parkName: envData.parkName,
     aiScore: score,
     urgencyLevel: ai.urgencyLevel,
-    insight: ai.insight
+    insight
   };
 };
 var onHttpTrigger = (runtime2, payload) => {
@@ -15783,7 +15797,7 @@ var onHttpTrigger = (runtime2, payload) => {
   runtime2.log(`[UrbanLeaf CRE] HTTP trigger → scoring proposal #${proposalId} (park: ${parkId})`);
   const geminiApiKey = runtime2.getSecret({ id: "GEMINI_API_KEY" }).result().value;
   const httpClient = new cre.capabilities.HTTPClient;
-  const result = httpClient.sendRequest(runtime2, (sendRequester) => runScoring(sendRequester, runtime2.config.urbanleafApiUrl, geminiApiKey, proposalId, parkId), consensusIdenticalAggregation())().result();
+  const result = httpClient.sendRequest(runtime2, (sendRequester) => runScoring(sendRequester, runtime2.config.urbanleafApiUrl, runtime2.config.blockchainServiceUrl, geminiApiKey, proposalId, parkId), consensusIdenticalAggregation())().result();
   runtime2.log(`[UrbanLeaf CRE] Score computed: ${result.aiScore}/100 (${result.urgencyLevel}) — "${result.insight}"`);
   const reportData = encodeAbiParameters(parseAbiParameters("uint64 proposalId, uint8 score, string urgencyLevel, string insight"), [BigInt(proposalId), result.aiScore, result.urgencyLevel, result.insight.substring(0, 256)]);
   const reportResponse = runtime2.report({

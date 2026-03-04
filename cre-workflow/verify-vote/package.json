@@ -1,0 +1,15 @@
+{
+  "name": "urbanleaf-verify-vote",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "bun x cre-setup"
+  },
+  "dependencies": {
+    "@chainlink/cre-sdk": "^1.0.9",
+    "zod": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

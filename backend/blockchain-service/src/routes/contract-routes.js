@@ -1,4 +1,5 @@
 import express from 'express';
+import { signRequest } from '@worldcoin/idkit-core';
 
 export const contractRoutes = express.Router();
 
@@ -106,6 +107,72 @@ contractRoutes.get('/has-voted/:proposalId/:address', async (req, res, next) => 
       return res.status(400).json({ success: false, error: 'Invalid proposal ID or address' });
     }
     const result = await svc.hasUserVoted(proposalId, address);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Returns a signed World ID v4 rp_context for the frontend to include in the IDKit request.
+contractRoutes.get('/world-id/request', (req, res, next) => {
+  try {
+    const signingKey = process.env.WORLD_ID_SIGNING_KEY;
+    const rpId = process.env.WORLD_ID_RP_ID || process.env.WORLD_ID_APP_ID;
+    if (!signingKey || !rpId) {
+      return res.status(500).json({ success: false, error: 'World ID RP not configured. Set WORLD_ID_RP_ID and WORLD_ID_SIGNING_KEY.' });
+    }
+    const action = req.query.action || 'urbanleaf-vote';
+    const { sig, nonce, createdAt, expiresAt } = signRequest(String(action), signingKey);
+    res.json({
+      success: true,
+      rp_context: { rp_id: rpId, nonce, created_at: createdAt, expires_at: expiresAt, signature: sig },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Called by the frontend after World ID proof is obtained.
+// Verifies proof against the World ID v4 API, then casts a sybil-resistant vote on-chain.
+contractRoutes.post('/vote-world-id', async (req, res, next) => {
+  try {
+    const svc = req.app.locals.blockchainService;
+    const { proposalId, vote, voter, idkitResult, rp_id } = req.body;
+    if (proposalId === undefined || vote === undefined || !voter || !idkitResult || !rp_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: proposalId, vote, voter, idkitResult, rp_id',
+      });
+    }
+
+    // Step 1: Verify the World ID proof via the v4 API
+    const verifyUrl = `https://developer.world.org/api/v4/verify/${encodeURIComponent(rp_id)}`;
+    const verifyRes = await fetch(verifyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(idkitResult),
+    });
+    const verifyData = await verifyRes.json();
+    if (!verifyRes.ok || !verifyData.success) {
+      return res.status(400).json({
+        success: false,
+        error: `World ID verification failed: ${verifyData.detail || verifyData.code || verifyRes.status}`,
+      });
+    }
+
+    // Step 2: Extract nullifier (top-level in v4 response, hex string)
+    const nullifier = verifyData.nullifier;
+    if (!nullifier) {
+      return res.status(400).json({ success: false, error: 'World ID did not return a nullifier' });
+    }
+
+    // Step 3: Cast the verified vote on-chain
+    const result = await svc.voteVerified(
+      parseInt(proposalId),
+      vote === true || vote === 'true' || vote === 'yes',
+      voter,
+      nullifier,
+    );
     res.json(result);
   } catch (error) {
     next(error);

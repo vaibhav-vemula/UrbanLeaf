@@ -24,6 +24,13 @@ contract UrbanLeafCommunity {
         bool vote
     );
 
+    event HumanVoteCast(
+        uint64 indexed proposalId,
+        address indexed voter,
+        bool vote,
+        uint256 nullifierHash
+    );
+
     event ProposalStatusUpdated(
         uint64 indexed proposalId,
         ProposalStatus newStatus
@@ -105,6 +112,9 @@ contract UrbanLeafCommunity {
     mapping(uint64 => mapping(address => bool)) public hasVoted;
     mapping(uint64 => Donation[]) public proposalDonations;
     mapping(uint64 => mapping(address => uint256)) public userDonationTotal;
+    // World ID sybil-resistance: one nullifier per proposal — allows voting on
+    // multiple proposals but prevents double-voting on the same one.
+    mapping(uint64 => mapping(uint256 => bool)) public usedNullifiers;
     uint64 public proposalCounter;
     address public owner;
     address public forwarderAddress;
@@ -208,6 +218,40 @@ contract UrbanLeafCommunity {
         }
 
         emit VoteCast(proposalId, voter, voteValue);
+    }
+
+    /**
+     * @notice Cast a World ID-verified vote. Called by the contract owner (CRE/blockchain-service)
+     *         after the CRE workflow has verified the World ID proof off-chain.
+     * @param nullifierHash  The World ID nullifier_hash — unique per (user, action); prevents double-voting.
+     */
+    function voteVerified(
+        uint64 proposalId,
+        bool voteValue,
+        address voter,
+        uint256 nullifierHash
+    )
+        public
+        onlyOwner
+        proposalExists(proposalId)
+        proposalActive(proposalId)
+        votingPeriodActive(proposalId)
+    {
+        require(!usedNullifiers[proposalId][nullifierHash], "World ID: nullifier already used");
+        require(!hasVoted[proposalId][voter], "User has already voted");
+
+        usedNullifiers[proposalId][nullifierHash] = true;
+        userVotes[proposalId][voter] = voteValue;
+        hasVoted[proposalId][voter] = true;
+
+        if (voteValue) {
+            proposals[proposalId].yesVotes++;
+        } else {
+            proposals[proposalId].noVotes++;
+        }
+
+        emit VoteCast(proposalId, voter, voteValue);
+        emit HumanVoteCast(proposalId, voter, voteValue, nullifierHash);
     }
 
     function updateProposalStatus(uint64 proposalId)

@@ -36,6 +36,7 @@ import { z } from 'zod'
 
 const configSchema = z.object({
   urbanleafApiUrl: z.string(),
+  blockchainServiceUrl: z.string(),
   contractAddress: z.string(),
   chainSelectorName: z.string(),
   gasLimit: z.string(),
@@ -72,6 +73,7 @@ interface ScoringResult {
 const runScoring = (
   sendRequester: HTTPSendRequester,
   urbanleafApiUrl: string,
+  blockchainServiceUrl: string,
   geminiApiKey: string,
   proposalId: string,
   parkId: string,
@@ -125,6 +127,24 @@ const runScoring = (
   }
 
   const score = Math.min(100, Math.max(0, Math.round(ai.score)))
+  const insight = ai.insight.substring(0, 256)
+
+  // Write score directly to blockchain service so it lands on-chain in both
+  // simulation mode (where writeReport is a no-op) and production.
+  const setScoreBody = JSON.stringify({
+    proposalId,
+    score,
+    urgencyLevel: ai.urgencyLevel,
+    insight,
+  })
+  sendRequester
+    .sendRequest({
+      method: 'POST',
+      url: `${blockchainServiceUrl}/api/contract/set-environmental-score`,
+      headers: { 'Content-Type': 'application/json' },
+      body: Buffer.from(setScoreBody).toString('base64'),
+    })
+    .result()
 
   return {
     proposalId,
@@ -132,7 +152,7 @@ const runScoring = (
     parkName: envData.parkName,
     aiScore: score,
     urgencyLevel: ai.urgencyLevel,
-    insight: ai.insight,
+    insight,
   }
 }
 
@@ -172,6 +192,7 @@ const onLogTrigger = (runtime: Runtime<Config>, payload: EVMLog): string => {
         runScoring(
           sendRequester,
           runtime.config.urbanleafApiUrl,
+          runtime.config.blockchainServiceUrl,
           geminiApiKey,
           proposalId,
           parkId,
@@ -221,9 +242,16 @@ const onLogTrigger = (runtime: Runtime<Config>, payload: EVMLog): string => {
     })
     .result()
 
+  // In simulation mode writeReport returns a zero hash (no-op).
+  // The score is already on-chain via the direct set-environmental-score call in runScoring().
   const txHash = bytesToHex(writeResult.txHash ?? new Uint8Array(32))
+  const isSimulation = txHash === '0x' + '0'.repeat(64)
 
-  runtime.log(`[UrbanLeaf CRE] Score written on-chain via forwarder: ${txHash}`)
+  runtime.log(
+    isSimulation
+      ? `[UrbanLeaf CRE] Score written on-chain via blockchain-service (simulation — writeReport is no-op)`
+      : `[UrbanLeaf CRE] Score written on-chain via CRE forwarder: ${txHash}`,
+  )
 
   return JSON.stringify({ ...result, txHash, trigger: 'evm-log', status: 'scored' })
 }

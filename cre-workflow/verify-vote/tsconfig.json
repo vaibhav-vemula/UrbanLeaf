@@ -6,11 +6,6 @@
     "strict": true,
     "outDir": "dist"
   },
-  "include": [
-    "score-proposal/**/*",
-    "evm-score-proposal/**/*",
-    "auto-close/**/*",
-    "verify-vote/**/*"
-  ],
+  "include": ["**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

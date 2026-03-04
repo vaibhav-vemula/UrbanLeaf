@@ -1,14 +1,19 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ArrowLeft, ThumbsUp, ThumbsDown, Clock, CheckCircle2, XCircle, X, Loader2, TrendingDown, Users, Leaf, DollarSign, Target, TrendingUp, Brain, AlertTriangle, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ThumbsUp, ThumbsDown, Clock, CheckCircle2, XCircle, X, Loader2, TrendingDown, Users, Leaf, DollarSign, Target, TrendingUp, Brain, AlertTriangle, ShieldAlert, ShieldCheck, ShieldCheck as WorldIdIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useWallet } from '@/components/providers/WalletProvider';
 import { getProposals, getProposalDetails, getDonationProgress } from '@/lib/api';
-import { voteOnProposal, hasUserVoted, donateToProposal } from '@/lib/wallet';
+import { hasUserVoted, donateToProposal } from '@/lib/wallet';
+import { IDKitRequestWidget, deviceLegacy } from '@worldcoin/idkit';
+import type { IDKitResult, RpContext } from '@worldcoin/idkit';
 import CustomCursor from '@/components/ui/CustomCursor';
 import ProtectedRoute from '@/components/ui/ProtectedRoute';
 import WalletStatus from '@/components/ui/WalletStatus';
+
+const BLOCKCHAIN_SERVICE_URL = process.env.NEXT_PUBLIC_BLOCKCHAIN_SERVICE_URL || 'http://localhost:5000';
+const WORLD_ID_APP_ID = (process.env.NEXT_PUBLIC_WORLD_ID_APP_ID || 'app_staging_YOUR_APP_ID') as `app_${string}`;
 
 type ProposalStatus = 'active' | 'passed' | 'rejected';
 type TabType = 'active' | 'accepted' | 'rejected';
@@ -74,6 +79,9 @@ export default function ProposalPage() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(true);
   const [voting, setVoting] = useState(false);
+  const [pendingVote, setPendingVote] = useState<'yes' | 'no' | null>(null);
+  const [worldIdOpen, setWorldIdOpen] = useState(false);
+  const [rpContext, setRpContext] = useState<RpContext | null>(null);
   const [hasVoted, setHasVoted] = useState(false);
   const [checkingVoteStatus, setCheckingVoteStatus] = useState(false);
   const [voteSuccess, setVoteSuccess] = useState(false);
@@ -143,40 +151,50 @@ export default function ProposalPage() {
     }
   };
 
-  const handleVote = async (vote: 'yes' | 'no') => {
-    if (!selectedProposal) return;
-
-    setVoting(true);
-    setVoteSuccess(false);
-    setTransactionId(null);
-
+  // Step 1: Fetch a fresh rp_context from backend, then open the World ID modal.
+  const handleVoteClick = async (vote: 'yes' | 'no') => {
+    if (!selectedProposal || !address) return;
+    setPendingVote(vote);
     try {
-      console.log(`Voting ${vote} on proposal ${selectedProposal.id}`);
-
-      // Submit vote transaction to Arbitrum via MetaMask
-      const txId = await voteOnProposal(selectedProposal.id, vote);
-
-      console.log('Vote transaction successful:', txId);
-
-      // Show success notification
-      setTransactionId(txId);
-      setVoteSuccess(true);
-      setHasVoted(true);
-
-      // Refresh proposals after a delay
-      setTimeout(() => {
-        fetchProposals();
-      }, 2000);
-
+      const res = await fetch(`${BLOCKCHAIN_SERVICE_URL}/api/contract/world-id/request?action=urbanleaf-vote`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Failed to get RP context');
+      setRpContext(data.rp_context);
+      setWorldIdOpen(true);
     } catch (error: any) {
-      console.error('Error voting:', error);
-
-      // Show user-friendly error message
-      const errorMessage = error?.message || 'Failed to submit vote';
-      alert(`Voting failed: ${errorMessage}\n\nPlease make sure your MetaMask wallet is connected to Arbitrum Sepolia.`);
-    } finally {
-      setVoting(false);
+      console.error('World ID init error:', error);
+      alert(`Failed to initialize World ID verification: ${error?.message || 'Unknown error'}`);
+      setPendingVote(null);
     }
+  };
+
+  // Step 2: Called by IDKitRequestWidget — verifies proof on backend and submits on-chain vote.
+  const handleVerify = async (result: IDKitResult) => {
+    if (!pendingVote || !selectedProposal || !address || !rpContext) return;
+    const response = await fetch(`${BLOCKCHAIN_SERVICE_URL}/api/contract/vote-world-id`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        proposalId: selectedProposal.id,
+        vote: pendingVote === 'yes',
+        voter: address,
+        idkitResult: result,
+        rp_id: rpContext.rp_id,
+      }),
+    });
+    const data = await response.json();
+    if (!data.success) throw new Error(data.error || 'Vote submission failed');
+    setTransactionId(data.transactionHash);
+  };
+
+  // Step 3: Called by IDKitRequestWidget after handleVerify resolves — update UI.
+  const onWorldIdSuccess = () => {
+    setVoteSuccess(true);
+    setHasVoted(true);
+    setWorldIdOpen(false);
+    setRpContext(null);
+    setPendingVote(null);
+    setTimeout(() => { fetchProposals(); }, 2000);
   };
 
   const handleDonate = async () => {
@@ -781,7 +799,7 @@ export default function ProposalPage() {
                         </div>
                         <div>
                           <h4 className="text-lg font-bold text-emerald-400">Vote Successful!</h4>
-                          <p className="text-sm text-gray-400">Your vote has been recorded on the blockchain</p>
+                          <p className="text-sm text-gray-400">World ID verified · Vote recorded on Arbitrum Sepolia</p>
                         </div>
                       </div>
                       <div className="bg-slate-800/50 rounded-lg p-4">
@@ -798,23 +816,46 @@ export default function ProposalPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex gap-4 pt-4 border-t border-slate-700">
-                    <button
-                      onClick={() => handleVote('yes')}
-                      disabled={voting}
-                      className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-emerald-500 text-white rounded-xl font-semibold hover:bg-emerald-600 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {voting ? <Loader2 size={20} className="animate-spin" /> : <ThumbsUp size={20} />}
-                      Vote For
-                    </button>
-                    <button
-                      onClick={() => handleVote('no')}
-                      disabled={voting}
-                      className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {voting ? <Loader2 size={20} className="animate-spin" /> : <ThumbsDown size={20} />}
-                      Vote Against
-                    </button>
+                  <div className="pt-4 border-t border-slate-700 space-y-3">
+                    <div className="flex items-center gap-2 text-xs text-gray-400">
+                      <WorldIdIcon size={14} className="text-indigo-400" />
+                      <span>Voting requires <span className="text-indigo-400 font-medium">World ID</span> verification — one human, one vote</span>
+                    </div>
+                    <div className="flex gap-4">
+                      <button
+                        onClick={() => handleVoteClick('yes')}
+                        disabled={voting || worldIdOpen}
+                        className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-emerald-500 text-white rounded-xl font-semibold hover:bg-emerald-600 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {voting && pendingVote === 'yes' ? <Loader2 size={20} className="animate-spin" /> : <ThumbsUp size={20} />}
+                        Vote For
+                      </button>
+                      <button
+                        onClick={() => handleVoteClick('no')}
+                        disabled={voting || worldIdOpen}
+                        className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {voting && pendingVote === 'no' ? <Loader2 size={20} className="animate-spin" /> : <ThumbsDown size={20} />}
+                        Vote Against
+                      </button>
+                    </div>
+                    {/* IDKit v4 controlled modal — rendered once, driven by worldIdOpen state */}
+                    {rpContext && (
+                      <IDKitRequestWidget
+                        app_id={WORLD_ID_APP_ID}
+                        action="urbanleaf-vote"
+                        rp_context={rpContext}
+                        preset={deviceLegacy({ signal: `${selectedProposal.id}-${pendingVote}` })}
+                        allow_legacy_proofs={true}
+                        open={worldIdOpen}
+                        onOpenChange={(open) => {
+                          setWorldIdOpen(open);
+                          if (!open) { setRpContext(null); setPendingVote(null); }
+                        }}
+                        handleVerify={handleVerify}
+                        onSuccess={onWorldIdSuccess}
+                      />
+                    )}
                   </div>
                 )}
               </>

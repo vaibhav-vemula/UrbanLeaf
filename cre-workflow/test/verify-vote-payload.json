@@ -1,0 +1,9 @@
+{
+  "proposalId": "1",
+  "vote": true,
+  "voter": "0xYourWalletAddress",
+  "merkle_root": "0x1f0b735f3e3f8c5b4e2a1f7e3c9d0b2e4a6c8f0e2d4b6a8c0e2f4d6b8a0c2e4",
+  "nullifier_hash": "0x2c4e6a8b0d2f4e6c8a0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a4",
+  "proof": "0x1234...abcd",
+  "verification_level": "orb"
+}

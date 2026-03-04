@@ -5,10 +5,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "install:all": "npm install && cd evm-score-proposal && npm install && cd ../score-proposal && npm install && cd ../auto-close && npm install",
+    "install:all": "npm install && cd evm-score-proposal && npm install && cd ../score-proposal && npm install && cd ../auto-close && npm install && cd ../verify-vote && npm install",
     "simulate:score": "cre workflow simulate score-proposal -T staging-settings --non-interactive --trigger-index 0 --http-payload @$(pwd)/test/score-proposal-payload.json",
     "simulate:evm": "cre workflow simulate evm-score-proposal -T staging-settings --non-interactive --trigger-index 0 --evm-tx-hash $(cat $(pwd)/test/last-tx-hash.txt)",
-    "simulate:autoclose": "cre workflow simulate auto-close -T staging-settings --non-interactive --trigger-index 0"
+    "simulate:autoclose": "cre workflow simulate auto-close -T staging-settings --non-interactive --trigger-index 0",
+    "simulate:verify-vote": "cre workflow simulate verify-vote -T staging-settings --non-interactive --trigger-index 0 --http-payload @$(pwd)/test/verify-vote-payload.json"
   },
   "dependencies": {
     "@chainlink/cre-sdk": "latest"

@@ -44,6 +44,12 @@ export class BlockchainService {
     return ethers.formatEther(balance);
   }
 
+  // Always fetch the pending nonce from the chain to avoid stale-nonce errors
+  // when concurrent transactions (CRE scorer, votes, etc.) are in flight.
+  async _nonce() {
+    return this.provider.getTransactionCount(this.wallet.address, 'pending');
+  }
+
   async createProposal(proposalData) {
     if (!this.contract) throw new Error('Contract not deployed');
 
@@ -74,7 +80,8 @@ export class BlockchainService {
       ],
       creator || this.wallet.address,
       fundraisingEnabled || false,
-      fundingGoal || 0
+      fundingGoal || 0,
+      { nonce: await this._nonce() }
     );
 
     const receipt = await tx.wait();
@@ -106,7 +113,27 @@ export class BlockchainService {
   async submitVote(proposalId, vote, voter) {
     if (!this.contract) throw new Error('Contract not deployed');
 
-    const tx = await this.contract.vote(proposalId, vote, voter);
+    const tx = await this.contract.vote(proposalId, vote, voter, { nonce: await this._nonce() });
+    const receipt = await tx.wait();
+
+    return {
+      success: true,
+      transactionHash: receipt.hash,
+      status: receipt.status === 1 ? 'SUCCESS' : 'FAILED',
+      explorerUrl: `${this.explorerBase}/tx/${receipt.hash}`
+    };
+  }
+
+  async voteVerified(proposalId, vote, voter, nullifierHash) {
+    if (!this.contract) throw new Error('Contract not deployed');
+
+    const tx = await this.contract.voteVerified(
+      proposalId,
+      vote,
+      voter,
+      BigInt(nullifierHash),
+      { nonce: await this._nonce() }
+    );
     const receipt = await tx.wait();
 
     return {
@@ -209,10 +236,10 @@ export class BlockchainService {
 
     let tx;
     if (votingEnded) {
-      tx = await this.contract.updateProposalStatus(proposalId);
+      tx = await this.contract.updateProposalStatus(proposalId, { nonce: await this._nonce() });
     } else {
       const newStatus = Number(proposal.yesVotes) > Number(proposal.noVotes) ? 1 : 2;
-      tx = await this.contract.forceCloseProposal(proposalId, newStatus);
+      tx = await this.contract.forceCloseProposal(proposalId, newStatus, { nonce: await this._nonce() });
     }
 
     const receipt = await tx.wait();
@@ -226,7 +253,7 @@ export class BlockchainService {
   async setFundingGoal(proposalId, goalInEth) {
     if (!this.contract) throw new Error('Contract not deployed');
     const goalInWei = ethers.parseEther(goalInEth.toString());
-    const tx = await this.contract.setFundingGoal(proposalId, goalInWei);
+    const tx = await this.contract.setFundingGoal(proposalId, goalInWei, { nonce: await this._nonce() });
     const receipt = await tx.wait();
     return { success: true, transactionHash: receipt.hash, goal: goalInEth };
   }
@@ -234,7 +261,8 @@ export class BlockchainService {
   async donateToProposal(proposalId, amountInEth) {
     if (!this.contract) throw new Error('Contract not deployed');
     const tx = await this.contract.donateToProposal(proposalId, {
-      value: ethers.parseEther(amountInEth.toString())
+      value: ethers.parseEther(amountInEth.toString()),
+      nonce: await this._nonce()
     });
     const receipt = await tx.wait();
     return {
@@ -257,7 +285,7 @@ export class BlockchainService {
 
   async withdrawFunds(proposalId, recipientAddress) {
     if (!this.contract) throw new Error('Contract not deployed');
-    const tx = await this.contract.withdrawFunds(proposalId, recipientAddress);
+    const tx = await this.contract.withdrawFunds(proposalId, recipientAddress, { nonce: await this._nonce() });
     const receipt = await tx.wait();
     return {
       success: true,
@@ -268,7 +296,7 @@ export class BlockchainService {
 
   async setEnvironmentalScore(proposalId, score, urgencyLevel, insight) {
     if (!this.contract) throw new Error('Contract not deployed');
-    const tx = await this.contract.setEnvironmentalScore(proposalId, score, urgencyLevel, insight);
+    const tx = await this.contract.setEnvironmentalScore(proposalId, score, urgencyLevel, insight, { nonce: await this._nonce() });
     const receipt = await tx.wait();
     return {
       success: true,

@@ -1,0 +1,4 @@
+{
+  "blockchainServiceUrl": "http://localhost:5000",
+  "worldIdAction": "urbanleaf-vote"
+}
