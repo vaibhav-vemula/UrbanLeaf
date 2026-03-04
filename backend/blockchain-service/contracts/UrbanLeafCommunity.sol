@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+interface IERC20 {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+}
+
 contract UrbanLeafCommunity {
 
     event ProposalCreated(
@@ -119,6 +124,9 @@ contract UrbanLeafCommunity {
     address public owner;
     address public forwarderAddress;
 
+    IERC20 public immutable usdc;
+    address public constant USDC_ADDRESS = 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d;
+
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner can call this function");
         _;
@@ -148,6 +156,7 @@ contract UrbanLeafCommunity {
         owner = msg.sender;
         forwarderAddress = _forwarderAddress;
         proposalCounter = 0;
+        usdc = IERC20(USDC_ADDRESS);
         emit ContractInitialized(msg.sender);
     }
 
@@ -441,28 +450,28 @@ contract UrbanLeafCommunity {
         emit FundingGoalSet(proposalId, goal);
     }
 
-    function donateToProposal(uint64 proposalId)
-        public
-        payable
+    function donateToProposal(uint64 proposalId, uint256 amount)
+        external
         proposalExists(proposalId)
     {
         require(proposals[proposalId].status == ProposalStatus.Accepted, "Proposal not accepted");
         require(proposals[proposalId].fundingEnabled, "Funding not enabled");
-        require(msg.value > 0, "Must send HBAR");
+        require(amount > 0, "Must send USDC");
+        require(usdc.transferFrom(msg.sender, address(this), amount), "USDC transfer failed");
 
         proposalDonations[proposalId].push(Donation({
             donor: msg.sender,
-            amount: msg.value,
+            amount: amount,
             timestamp: block.timestamp
         }));
 
-        userDonationTotal[proposalId][msg.sender] += msg.value;
-        proposals[proposalId].totalFundsRaised += msg.value;
+        userDonationTotal[proposalId][msg.sender] += amount;
+        proposals[proposalId].totalFundsRaised += amount;
 
-        emit DonationReceived(proposalId, msg.sender, msg.value, block.timestamp);
+        emit DonationReceived(proposalId, msg.sender, amount, block.timestamp);
     }
 
-    function withdrawFunds(uint64 proposalId, address payable recipient)
+    function withdrawFunds(uint64 proposalId, address recipient)
         public
         onlyOwner
         proposalExists(proposalId)
@@ -472,8 +481,7 @@ contract UrbanLeafCommunity {
         uint256 amount = proposals[proposalId].totalFundsRaised;
         proposals[proposalId].totalFundsRaised = 0;
 
-        (bool success, ) = recipient.call{value: amount}("");
-        require(success, "Transfer failed");
+        require(usdc.transfer(recipient, amount), "USDC transfer failed");
 
         emit FundsWithdrawn(proposalId, recipient, amount, block.timestamp);
     }
@@ -568,5 +576,4 @@ contract UrbanLeafCommunity {
         return (p.aiEnvironmentalScore, p.aiUrgencyLevel, p.aiInsight, p.aiScored);
     }
 
-    receive() external payable {}
 }

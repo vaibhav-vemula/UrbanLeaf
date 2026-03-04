@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, ThumbsUp, ThumbsDown, Clock, CheckCircle2, XCircle, X, Loader2, TrendingDown, Users, Leaf, DollarSign, Target, TrendingUp, Brain, AlertTriangle, ShieldAlert, ShieldCheck, ShieldCheck as WorldIdIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useWallet } from '@/components/providers/WalletProvider';
@@ -89,6 +89,7 @@ export default function ProposalPage() {
   const [checkingVoteStatus, setCheckingVoteStatus] = useState(false);
   const [voteSuccess, setVoteSuccess] = useState(false);
   const [transactionId, setTransactionId] = useState<string | null>(null);
+  const isVerifyingRef = useRef(false);
 
   // Donation modal state
   const [showDonateModal, setShowDonateModal] = useState(false);
@@ -97,7 +98,7 @@ export default function ProposalPage() {
   const [donationProgress, setDonationProgress] = useState<DonationProgress | null>(null);
   const [showDonationResultModal, setShowDonationResultModal] = useState(false);
   const [donationResult, setDonationResult] = useState({ success: false, message: '', txId: '', amount: '' });
-  const [paymentMethod, setPaymentMethod] = useState<'eth' | 'usdc' | 'card'>('eth');
+  const [paymentMethod, setPaymentMethod] = useState<'usdc' | 'card'>('usdc');
 
   // Fetch proposals on mount
   useEffect(() => {
@@ -157,6 +158,7 @@ export default function ProposalPage() {
   // Step 1: Fetch a fresh rp_context from backend, then open the World ID modal.
   const handleVoteClick = async (vote: 'yes' | 'no') => {
     if (!selectedProposal || !address) return;
+    isVerifyingRef.current = false;
     setPendingVote(vote);
     try {
       const res = await fetch(`${BLOCKCHAIN_SERVICE_URL}/api/contract/world-id/request?action=urbanleaf-vote`);
@@ -175,7 +177,8 @@ export default function ProposalPage() {
   // Routes through Chainlink CRE (preferred) for off-chain World ID verification
   // on Arbitrum Sepolia, falling back to direct backend verification.
   const handleVerify = async (result: IDKitResult) => {
-    if (!pendingVote || !selectedProposal || !address || !rpContext) return;
+    if (isVerifyingRef.current || !pendingVote || !selectedProposal || !address || !rpContext) return;
+    isVerifyingRef.current = true;
 
     const payload = {
       proposalId: String(selectedProposal.id),
@@ -197,12 +200,17 @@ export default function ProposalPage() {
       body: JSON.stringify(payload),
     });
     const data = await response.json();
-    if (!data.success) throw new Error(data.error || 'Vote submission failed');
+    if (!data.success) {
+      isVerifyingRef.current = false;
+      throw new Error(data.error || 'Vote submission failed');
+    }
     setTransactionId(data.transactionHash || data.txHash);
+    // ref stays true — onSuccess will close modal; reset on next vote click
   };
 
   // Step 3: Called by IDKitRequestWidget after handleVerify resolves — update UI.
   const onWorldIdSuccess = () => {
+    isVerifyingRef.current = false;
     setVoteSuccess(true);
     setHasVoted(true);
     setWorldIdOpen(false);
@@ -227,7 +235,7 @@ export default function ProposalPage() {
     setShowDonateModal(false);
 
     try {
-      console.log(`Donating ${donationAmount} ETH to proposal ${selectedProposal.id}`);
+      console.log(`Donating ${donationAmount} USDC to proposal ${selectedProposal.id}`);
 
       // Submit donation transaction to Arbitrum via MetaMask
       const txId = await donateToProposal(selectedProposal.id, parseFloat(donationAmount));
@@ -596,10 +604,10 @@ export default function ProposalPage() {
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-gray-300 font-semibold">
                       <DollarSign size={14} className="inline" />
-                      {donationProgress.raised.toFixed(4)} ETH raised
+                      {donationProgress.raised.toFixed(2)} USDC raised
                     </span>
                     <span className="text-gray-400">
-                      Goal: {donationProgress.goal > 0 ? `${donationProgress.goal.toFixed(4)} ETH` : 'Not set'}
+                      Goal: {donationProgress.goal > 0 ? `${donationProgress.goal.toFixed(2)} USDC` : 'Not set'}
                     </span>
                   </div>
                   <div className="w-full bg-slate-700/50 rounded-full h-6 overflow-hidden">
@@ -906,31 +914,19 @@ export default function ProposalPage() {
               <label className="block text-sm font-semibold text-gray-300 mb-3">
                 Payment Method
               </label>
-              <div className="grid grid-cols-3 gap-3">
-                {/* ETH - Active */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* USDC - Active */}
                 <button
-                  onClick={() => setPaymentMethod('eth')}
+                  onClick={() => setPaymentMethod('usdc')}
                   className={`p-4 rounded-xl border-2 transition-all ${
-                    paymentMethod === 'eth'
+                    paymentMethod === 'usdc'
                       ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
                       : 'bg-slate-800 border-slate-700 text-gray-400 hover:border-slate-600'
                   }`}
                 >
                   <div className="text-center">
-                    <div className="text-2xl mb-1">Ξ</div>
-                    <div className="text-xs font-semibold">ETH</div>
-                  </div>
-                </button>
-
-                {/* USDC - Disabled */}
-                <button
-                  disabled
-                  className="p-4 rounded-xl border-2 bg-slate-800/50 border-slate-700/50 text-gray-600 cursor-not-allowed opacity-50"
-                >
-                  <div className="text-center">
                     <div className="text-2xl mb-1">$</div>
                     <div className="text-xs font-semibold">USDC</div>
-                    <div className="text-[10px] mt-1">Coming Soon</div>
                   </div>
                 </button>
 
@@ -950,7 +946,7 @@ export default function ProposalPage() {
 
             <div className="mb-6">
               <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Donation Amount ({paymentMethod === 'eth' ? 'ETH' : paymentMethod === 'usdc' ? 'USDC' : 'USD'})
+                Donation Amount (USDC)
               </label>
               <div className="relative">
                 <input
@@ -964,7 +960,7 @@ export default function ProposalPage() {
                   disabled={donating}
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
-                  {paymentMethod === 'eth' ? 'ETH' : paymentMethod === 'usdc' ? 'USDC' : 'USD'}
+                  USDC
                 </span>
               </div>
             </div>
@@ -997,7 +993,7 @@ export default function ProposalPage() {
             </div>
 
             <p className="text-xs text-gray-500 mt-4 text-center">
-              Your wallet will open to approve the transaction
+              Your wallet will open twice: once to approve USDC, then to confirm the donation
             </p>
           </div>
         </div>
@@ -1033,7 +1029,7 @@ export default function ProposalPage() {
                 <div className="bg-slate-800/50 rounded-lg p-4 mb-4">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-sm text-gray-400">Amount Donated:</span>
-                    <span className="text-emerald-400 font-bold text-lg">{donationResult.amount} ETH</span>
+                    <span className="text-emerald-400 font-bold text-lg">{donationResult.amount} USDC</span>
                   </div>
                   {donationResult.txId && (
                     <>

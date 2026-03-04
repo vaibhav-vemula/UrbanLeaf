@@ -31,6 +31,9 @@ export class BlockchainService {
       this.contract = new ethers.Contract(this.contractAddress, this.abi, this.wallet);
     }
 
+    // Serial transaction queue — prevents concurrent nonce collisions
+    this._txQueue = Promise.resolve();
+
     console.log('\n=== Blockchain Service initialized ===');
     console.log(`Network: Arbitrum Sepolia (chainId: ${this.chainId})`);
     console.log(`RPC: ${this.rpcUrl}`);
@@ -44,8 +47,16 @@ export class BlockchainService {
     return ethers.formatEther(balance);
   }
 
-  // Always fetch the pending nonce from the chain to avoid stale-nonce errors
-  // when concurrent transactions (CRE scorer, votes, etc.) are in flight.
+  // Serial write queue: ensures only one transaction is submitted at a time so
+  // the pending nonce is always accurate (avoids race condition where two
+  // concurrent calls both read the same pending nonce and one gets rejected).
+  _enqueue(fn) {
+    const next = this._txQueue.then(fn);
+    // Detach so a rejection in fn doesn't block future enqueues
+    this._txQueue = next.catch(() => {});
+    return next;
+  }
+
   async _nonce() {
     return this.provider.getTransactionCount(this.wallet.address, 'pending');
   }
@@ -112,36 +123,36 @@ export class BlockchainService {
 
   async submitVote(proposalId, vote, voter) {
     if (!this.contract) throw new Error('Contract not deployed');
-
-    const tx = await this.contract.vote(proposalId, vote, voter, { nonce: await this._nonce() });
-    const receipt = await tx.wait();
-
-    return {
-      success: true,
-      transactionHash: receipt.hash,
-      status: receipt.status === 1 ? 'SUCCESS' : 'FAILED',
-      explorerUrl: `${this.explorerBase}/tx/${receipt.hash}`
-    };
+    return this._enqueue(async () => {
+      const tx = await this.contract.vote(proposalId, vote, voter, { nonce: await this._nonce() });
+      const receipt = await tx.wait();
+      return {
+        success: true,
+        transactionHash: receipt.hash,
+        status: receipt.status === 1 ? 'SUCCESS' : 'FAILED',
+        explorerUrl: `${this.explorerBase}/tx/${receipt.hash}`
+      };
+    });
   }
 
   async voteVerified(proposalId, vote, voter, nullifierHash) {
     if (!this.contract) throw new Error('Contract not deployed');
-
-    const tx = await this.contract.voteVerified(
-      proposalId,
-      vote,
-      voter,
-      BigInt(nullifierHash),
-      { nonce: await this._nonce() }
-    );
-    const receipt = await tx.wait();
-
-    return {
-      success: true,
-      transactionHash: receipt.hash,
-      status: receipt.status === 1 ? 'SUCCESS' : 'FAILED',
-      explorerUrl: `${this.explorerBase}/tx/${receipt.hash}`
-    };
+    return this._enqueue(async () => {
+      const tx = await this.contract.voteVerified(
+        proposalId,
+        vote,
+        voter,
+        BigInt(nullifierHash),
+        { nonce: await this._nonce() }
+      );
+      const receipt = await tx.wait();
+      return {
+        success: true,
+        transactionHash: receipt.hash,
+        status: receipt.status === 1 ? 'SUCCESS' : 'FAILED',
+        explorerUrl: `${this.explorerBase}/tx/${receipt.hash}`
+      };
+    });
   }
 
   async getProposal(proposalId) {
@@ -176,8 +187,8 @@ export class BlockchainService {
             totalAffectedPopulation: Number(proposal.demographics.totalAffectedPopulation)
           },
           creator: proposal.creatorAccountId,
-          fundingGoal: Number(proposal.fundingGoal),
-          totalFundsRaised: Number(proposal.totalFundsRaised),
+          fundingGoal: parseFloat(ethers.formatUnits(proposal.fundingGoal || 0n, 6)),
+          totalFundsRaised: parseFloat(ethers.formatUnits(proposal.totalFundsRaised || 0n, 6)),
           fundingEnabled: Boolean(proposal.fundingEnabled),
           // CRE AI score fields — written on-chain by the CRE scoring workflows
           aiEnvironmentalScore: Number(proposal.aiEnvironmentalScore),
@@ -250,20 +261,18 @@ export class BlockchainService {
     };
   }
 
-  async setFundingGoal(proposalId, goalInEth) {
+  async setFundingGoal(proposalId, goalInUsdc) {
     if (!this.contract) throw new Error('Contract not deployed');
-    const goalInWei = ethers.parseEther(goalInEth.toString());
-    const tx = await this.contract.setFundingGoal(proposalId, goalInWei, { nonce: await this._nonce() });
+    const goalInUnits = ethers.parseUnits(goalInUsdc.toString(), 6);
+    const tx = await this.contract.setFundingGoal(proposalId, goalInUnits, { nonce: await this._nonce() });
     const receipt = await tx.wait();
-    return { success: true, transactionHash: receipt.hash, goal: goalInEth };
+    return { success: true, transactionHash: receipt.hash, goal: goalInUsdc };
   }
 
-  async donateToProposal(proposalId, amountInEth) {
+  async donateToProposal(proposalId, amountInUsdc) {
     if (!this.contract) throw new Error('Contract not deployed');
-    const tx = await this.contract.donateToProposal(proposalId, {
-      value: ethers.parseEther(amountInEth.toString()),
-      nonce: await this._nonce()
-    });
+    const amount = ethers.parseUnits(amountInUsdc.toString(), 6);
+    const tx = await this.contract.donateToProposal(proposalId, amount, { nonce: await this._nonce() });
     const receipt = await tx.wait();
     return {
       success: true,
@@ -277,8 +286,8 @@ export class BlockchainService {
     const [raised, goal, percentage] = await this.contract.getDonationProgress(proposalId);
     return {
       success: true,
-      raised: parseFloat(ethers.formatEther(raised)),
-      goal: parseFloat(ethers.formatEther(goal)),
+      raised: parseFloat(ethers.formatUnits(raised, 6)),
+      goal: parseFloat(ethers.formatUnits(goal, 6)),
       percentage: Number(percentage)
     };
   }

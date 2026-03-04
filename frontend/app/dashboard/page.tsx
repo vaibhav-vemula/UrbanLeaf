@@ -393,10 +393,10 @@ export default function DashboardPage() {
                             {proposal.fundingEnabled ? (
                               <div>
                                 <div className="text-emerald-400 font-semibold">
-                                  {(proposal.totalFundsRaised || 0) / 100000000} HBAR
+                                  {(proposal.totalFundsRaised || 0).toFixed(2)} USDC
                                 </div>
                                 <div className="text-xs text-gray-400">
-                                  Goal: {(proposal.fundingGoal || 0) / 100000000} HBAR
+                                  Goal: {(proposal.fundingGoal || 0) >= 0.01 ? `${(proposal.fundingGoal).toFixed(2)} USDC` : 'Not set'}
                                 </div>
                               </div>
                             ) : (
@@ -525,8 +525,8 @@ export default function DashboardPage() {
                         <div className="text-xl font-bold text-emerald-400">
                           {donationProgress
                             ? donationProgress.raised.toFixed(2)
-                            : ((selectedProposal.totalFundsRaised || 0) / 100000000).toFixed(2)
-                          } HBAR
+                            : (selectedProposal.totalFundsRaised || 0).toFixed(2)
+                          } USDC
                         </div>
                       </div>
                       <div>
@@ -535,8 +535,8 @@ export default function DashboardPage() {
                           {(() => {
                             const goal = donationProgress
                               ? donationProgress.goal
-                              : ((selectedProposal.fundingGoal || 0) / 100000000);
-                            return goal > 0 ? `${goal.toFixed(2)} HBAR` : 'Not set';
+                              : (selectedProposal.fundingGoal || 0);
+                            return goal >= 0.01 ? `${goal.toFixed(2)} USDC` : 'Not set';
                           })()}
                         </div>
                       </div>

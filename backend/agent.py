@@ -399,7 +399,7 @@ async def handle_create_proposal_intent(selected_park_id, session_id, message, w
             return {
                 "sessionId": session_id,
                 "action": "ask_funding_goal",
-                "reply": "Great! What funding goal are you planning for this proposal?\n\nPlease specify the amount in ETH (e.g., '0.1 ETH' or '0.5').",
+                "reply": "Great! What funding goal are you planning for this proposal?\n\nPlease specify the amount in USDC (e.g., '500 USDC' or '1000').",
             }
         elif any(word in message_lower for word in ['no', 'nope', 'nah', 'n', 'skip', 'dont', "don't"]):
             storage[session_id]["fundraising_enabled"] = False
@@ -418,22 +418,22 @@ async def handle_create_proposal_intent(selected_park_id, session_id, message, w
         import re
         numbers = re.findall(r'\d+(?:,\d{3})*(?:\.\d+)?', message)
         if numbers:
-            goal_hbar = float(numbers[0].replace(',', ''))
-            storage[session_id]["funding_goal"] = int(goal_hbar * 100000000)
+            goal_usdc = float(numbers[0].replace(',', ''))
+            storage[session_id]["funding_goal"] = int(goal_usdc * 10**6)
             storage[session_id]["awaiting_funding_goal"] = False
             return await _create_proposal_with_settings(selected_park_id, session_id, message, wallet_address, storage)
         else:
             return {
                 "sessionId": session_id,
                 "action": "clarify_goal",
-                "reply": "Please specify a valid funding goal amount in ETH.\n\nFor example: '0.1' or '0.5 ETH'",
+                "reply": "Please specify a valid funding goal amount in USDC.\n\nFor example: '500' or '1000 USDC'",
             }
     storage[session_id]["awaiting_fundraising_response"] = True
 
     return {
         "sessionId": session_id,
         "action": "ask_fundraising",
-        "reply": "Would you like to enable fundraising if this proposal is accepted?\n\nThis will allow community members to donate ETH to support the initiative.\n\nRespond with 'yes' or 'no'.",
+        "reply": "Would you like to enable fundraising if this proposal is accepted?\n\nThis will allow community members to donate USDC to support the initiative.\n\nRespond with 'yes' or 'no'.",
     }
 
 def _cleanup_proposal_session(storage, session_id):
@@ -452,17 +452,16 @@ async def _create_proposal_with_settings(selected_park_id, session_id, message, 
     fundraising_enabled = storage[session_id].get("fundraising_enabled", False)
     funding_goal = storage[session_id].get("funding_goal", 0)
 
-    end_date = "November 30, 2025"
+    from datetime import timedelta
+    default_end = datetime.now() + timedelta(days=30)
+    end_date = default_end.strftime("%B %d, %Y")
     if message:
         message_lower = message.lower()
-        if "november 30" in message_lower or "30th november" in message_lower:
-            end_date = "November 30, 2025"
-        elif "date" in message_lower or "deadline" in message_lower:
-            import re
-            date_pattern = r'\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4})\b'
-            date_match = re.search(date_pattern, message_lower)
-            if date_match:
-                end_date = date_match.group(1).title()
+        import re
+        date_pattern = r'\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4})\b'
+        date_match = re.search(date_pattern, message_lower)
+        if date_match:
+            end_date = date_match.group(1).title()
 
     park_name = analysis_data.get("parkName", "Selected Park")
 

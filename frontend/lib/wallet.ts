@@ -92,6 +92,11 @@ export async function getSigner(): Promise<ethers.Signer> {
   return provider.getSigner();
 }
 
+const USDC_ADDRESS = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
+const USDC_ABI = [
+  'function approve(address spender, uint256 amount) returns (bool)',
+];
+
 // Minimal ABI for the voting and donation contract functions
 const CONTRACT_ABI = [
   {
@@ -106,10 +111,13 @@ const CONTRACT_ABI = [
     type: 'function',
   },
   {
-    inputs: [{ internalType: 'uint64', name: 'proposalId', type: 'uint64' }],
+    inputs: [
+      { internalType: 'uint64', name: 'proposalId', type: 'uint64' },
+      { internalType: 'uint256', name: 'amount', type: 'uint256' },
+    ],
     name: 'donateToProposal',
     outputs: [],
-    stateMutability: 'payable',
+    stateMutability: 'nonpayable',
     type: 'function',
   },
 ];
@@ -128,15 +136,30 @@ export async function voteOnProposal(proposalId: number, vote: 'yes' | 'no'): Pr
 }
 
 /**
- * Donate ETH to an accepted proposal via MetaMask
+ * Donate USDC to an accepted proposal via MetaMask (approve + donate)
  */
-export async function donateToProposal(proposalId: number, amountInEth: number): Promise<string> {
+export async function donateToProposal(proposalId: number, amountInUsdc: number): Promise<string> {
   if (!CONTRACT_ADDRESS) throw new Error('Contract address not configured');
-  const signer = await getSigner();
+  const provider = new ethers.BrowserProvider(window.ethereum);
+  const signer = await provider.getSigner();
+
+  // Fetch live fee data and add 50% buffer so maxFeePerGas always exceeds baseFee
+  const feeData = await provider.getFeeData();
+  const txOverrides = feeData.maxFeePerGas
+    ? {
+        maxFeePerGas: (feeData.maxFeePerGas * 150n) / 100n,
+        maxPriorityFeePerGas: feeData.maxPriorityFeePerGas ?? 1000000n,
+      }
+    : {};
+
+  const amount = ethers.parseUnits(amountInUsdc.toString(), 6);
+  // Step 1: Approve USDC spend
+  const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
+  const approveTx = await usdc.approve(CONTRACT_ADDRESS, amount, txOverrides);
+  await approveTx.wait();
+  // Step 2: Donate
   const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-  const tx = await contract.donateToProposal(proposalId, {
-    value: ethers.parseEther(amountInEth.toString()),
-  });
+  const tx = await contract.donateToProposal(proposalId, amount, txOverrides);
   await tx.wait();
   return tx.hash as string;
 }
