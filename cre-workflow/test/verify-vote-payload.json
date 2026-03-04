@@ -1,9 +1,21 @@
 {
-  "proposalId": "1",
+  "proposalId": "3",
   "vote": true,
-  "voter": "0xYourWalletAddress",
-  "merkle_root": "0x1f0b735f3e3f8c5b4e2a1f7e3c9d0b2e4a6c8f0e2d4b6a8c0e2f4d6b8a0c2e4",
-  "nullifier_hash": "0x2c4e6a8b0d2f4e6c8a0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a4",
-  "proof": "0x1234...abcd",
-  "verification_level": "orb"
+  "voter": "0x2d95b7c89576cbb7b28a3bb7f676ddfda63193e8",
+  "idkitResult": {
+    "action": "urbanleaf-vote",
+    "environment": "production",
+    "nonce": "0x00f35c13b56edc839b6b99c2f570e409b69aa636ac399566263e11a81abb076a",
+    "protocol_version": "3.0",
+    "responses": [
+      {
+        "identifier": "orb",
+        "merkle_root": "0x7c9d9d3a229361406efbcebd0f4f97d84402465f282aaef13bf6c6eac15bd31",
+        "nullifier": "0x0911179b360a4677fdc7183dfed14b02fb31aa3f254dd880ebb4865fc6d7ecfe",
+        "proof": "0x10ff03b59c6be78cf129725d780fe24ea4cbe01b2ecaa98b0f007f2c025973a51bfdda7b6842ee2f7b42974240edefcd4a1854c5effe52cc976671a8423cc3291c5e31ce0219ef1b9809233ee13193679ed2c4ca5accdd8117f341c662d7b6e728f491849202bfcd3a406b31e77a59fe315083a54895b5caded9f682168f019b119aa6f58a515964940162fc121a523583bd9506be0e5cbe97b2d6fad4d860af0efb23de0aa339cf6e8412c9cd868256fc02ea9f89680bc15b24ed7a229712031fb3d82ba96790ca6195cabcba12e3815eedbd0a772852d50c4350cb93c581941d6e9204a5b569ffb2f88912341163f183373363303d2774a8495599cab5c3d7",
+        "signal_hash": "0x00da109f4c6c6f1d3da21312c40f4a912ea753966ed5a0415b848e0326152c59"
+      }
+    ]
+  },
+  "rp_id": "rp_ea7e48973631748d"
 }

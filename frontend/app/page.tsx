@@ -185,7 +185,7 @@ export default function Home() {
 
           <h1 className="text-6xl md:text-8xl font-extrabold mb-8 tracking-tight leading-none">
             <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-400 bg-clip-text text-transparent animate-gradient-x">
-              UrbanLeaf AI
+              UrbanLeaf
             </span>
             <span className="text-white">.ai</span>
           </h1>

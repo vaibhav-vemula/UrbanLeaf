@@ -4,16 +4,23 @@
  * Trigger: HTTP POST /verify-vote
  *
  * This workflow bridges World ID sybil-resistance to Arbitrum Sepolia,
- * which does not natively support World ID. CRE performs the off-chain
- * proof verification via the World ID Developer Portal API, then calls
- * the UrbanLeaf blockchain service to cast a verified vote on-chain.
+ * which does NOT natively support World ID on-chain verification.
+ * CRE performs the off-chain proof verification via the World ID v4 API
+ * using DON consensus, then calls the UrbanLeaf blockchain service to cast
+ * a verified, sybil-resistant vote on Arbitrum Sepolia.
  *
  * Pipeline:
- *   1. Decode proposalId, vote, voter, and World ID proof from HTTP payload
- *   2. POST proof to World ID Developer Portal verify API (off-chain)
- *   3. On success → POST to blockchain-service /api/contract/vote-world-id
- *      which calls voteVerified() on UrbanLeafCommunity.sol
- *   4. Return tx hash + verification result
+ *   1. Receive IDKit v4 result + rp_id from HTTP payload
+ *   2. POST proof to World ID v4 Developer Portal verify API (off-chain within CRE)
+ *   3. Extract nullifier from verified response
+ *   4. POST to blockchain-service /api/contract/cast-verified-vote
+ *      → calls voteVerified(proposalId, vote, voter, nullifier) on UrbanLeafCommunity.sol
+ *   5. Return tx hash + nullifier
+ *
+ * Why CRE?
+ *   - Arbitrum Sepolia has no native World ID contract
+ *   - CRE's DON provides decentralised, consensus-based off-chain verification
+ *   - The nullifier is stored on-chain after CRE confirms the proof is valid
  */
 
 import {
@@ -45,79 +52,69 @@ type Config = z.infer<typeof configSchema>
 // Types
 // ---------------------------------------------------------------------------
 
-interface VotePayload {
+interface VoteVerifyPayload {
   proposalId: string
   vote: boolean
   voter: string
-  // World ID IDKit proof fields
-  merkle_root: string
-  nullifier_hash: string
-  proof: string
-  verification_level: string
+  idkitResult: object  // Full IDKit v4 result (IDKitResultV3 | IDKitResultV4)
+  rp_id: string        // RP ID used to generate the rp_context
 }
 
 interface VerifyResult {
   proposalId: string
   voter: string
   vote: boolean
-  nullifierHash: string
+  nullifier: string
   txHash: string
   status: string
 }
 
 // ---------------------------------------------------------------------------
-// Verification + vote pipeline (runs inside sendRequest node mode)
+// Verification + vote pipeline (runs inside sendRequest node mode for DON consensus)
 // ---------------------------------------------------------------------------
 
 const runVerifyAndVote = (
   sendRequester: HTTPSendRequester,
   blockchainServiceUrl: string,
-  worldIdAppId: string,
-  worldIdAction: string,
-  payload: VotePayload,
+  payload: VoteVerifyPayload,
 ): VerifyResult => {
-  const { proposalId, vote, voter, merkle_root, nullifier_hash, proof, verification_level } = payload
+  const { proposalId, vote, voter, idkitResult, rp_id } = payload
 
-  // Step 1: Verify World ID proof via Developer Portal API (off-chain)
-  // Signal encodes proposalId + vote direction so the proof is tied to this specific vote
-  const signal = `${proposalId}-${vote ? 'yes' : 'no'}`
-
-  const verifyBody = JSON.stringify({
-    merkle_root,
-    nullifier_hash,
-    proof,
-    verification_level: verification_level || 'orb',
-    action: worldIdAction,
-    signal,
-  })
-
+  // Step 1: Verify World ID proof via v4 Developer Portal API (off-chain within CRE)
+  // Arbitrum Sepolia has no native World ID contract — CRE bridges this gap.
   const verifyRes = sendRequester
     .sendRequest({
       method: 'POST',
-      url: `https://developer.worldcoin.org/api/v2/verify/${worldIdAppId}`,
+      url: `https://developer.world.org/api/v4/verify/${rp_id}`,
       headers: { 'Content-Type': 'application/json' },
-      body: Buffer.from(verifyBody).toString('base64'),
+      body: Buffer.from(JSON.stringify(idkitResult)).toString('base64'),
     })
     .result()
 
   if (!ok(verifyRes)) {
     const errBody = text(verifyRes)
-    throw new Error(`World ID verification failed (${verifyRes.statusCode}): ${errBody}`)
+    throw new Error(`World ID v4 verification failed (${verifyRes.statusCode}): ${errBody}`)
   }
 
-  // Step 2: Cast the verified vote via blockchain service
-  // The nullifier_hash is stored on-chain to prevent double-voting
-  const voteBody = JSON.stringify({
-    proposalId,
-    vote,
-    voter,
-    nullifierHash: nullifier_hash,
-  })
+  const verifyData = json(verifyRes) as { success: boolean; nullifier: string; detail?: string }
+
+  if (!verifyData.success) {
+    throw new Error(`World ID verification rejected: ${verifyData.detail || 'unknown error'}`)
+  }
+
+  const nullifier = verifyData.nullifier
+  if (!nullifier) {
+    throw new Error('World ID v4 API did not return a nullifier')
+  }
+
+  // Step 2: Cast the verified vote on Arbitrum Sepolia via blockchain service.
+  // The nullifier is stored on-chain to prevent double-voting (sybil resistance).
+  const voteBody = JSON.stringify({ proposalId, vote, voter, nullifier })
 
   const voteRes = sendRequester
     .sendRequest({
       method: 'POST',
-      url: `${blockchainServiceUrl}/api/contract/vote-world-id`,
+      url: `${blockchainServiceUrl}/api/contract/cast-verified-vote`,
       headers: { 'Content-Type': 'application/json' },
       body: Buffer.from(voteBody).toString('base64'),
     })
@@ -125,16 +122,16 @@ const runVerifyAndVote = (
 
   if (!ok(voteRes)) {
     const errBody = text(voteRes)
-    throw new Error(`Vote submission failed (${voteRes.statusCode}): ${errBody}`)
+    throw new Error(`On-chain vote failed (${voteRes.statusCode}): ${errBody}`)
   }
 
-  const voteResult = json(voteRes) as { success: boolean; transactionHash: string; explorerUrl: string }
+  const voteResult = json(voteRes) as { success: boolean; transactionHash: string }
 
   return {
     proposalId,
     voter,
     vote,
-    nullifierHash: nullifier_hash,
+    nullifier,
     txHash: voteResult.transactionHash,
     status: 'verified_and_voted',
   }
@@ -145,13 +142,11 @@ const runVerifyAndVote = (
 // ---------------------------------------------------------------------------
 
 const onHttpTrigger = (runtime: Runtime<Config>, httpPayload: HTTPPayload): string => {
-  const payload = decodeJson(httpPayload.input) as VotePayload
+  const payload = decodeJson(httpPayload.input) as VoteVerifyPayload
 
   runtime.log(
-    `[UrbanLeaf CRE] World ID vote verification → proposal #${payload.proposalId} | voter: ${payload.voter} | vote: ${payload.vote ? 'YES' : 'NO'}`,
+    `[UrbanLeaf CRE] World ID verify-vote → proposal #${payload.proposalId} | voter: ${payload.voter} | vote: ${payload.vote ? 'YES' : 'NO'} | rp_id: ${payload.rp_id}`,
   )
-
-  const worldIdAppId = runtime.getSecret({ id: 'WORLD_ID_APP_ID' }).result().value
 
   const httpClient = new cre.capabilities.HTTPClient()
 
@@ -162,19 +157,18 @@ const onHttpTrigger = (runtime: Runtime<Config>, httpPayload: HTTPPayload): stri
         runVerifyAndVote(
           sendRequester,
           runtime.config.blockchainServiceUrl,
-          worldIdAppId,
-          runtime.config.worldIdAction,
           payload,
         ),
+      // DON consensus: all nodes must agree on the verification result
       consensusIdenticalAggregation<VerifyResult>(),
     )()
     .result()
 
   runtime.log(
-    `[UrbanLeaf CRE] World ID vote verified and cast on-chain: ${result.txHash}`,
+    `[UrbanLeaf CRE] World ID verified on CRE → vote cast on Arbitrum Sepolia: txHash=${result.txHash} nullifier=${result.nullifier.slice(0, 18)}...`,
   )
 
-  return JSON.stringify({ ...result, trigger: 'http' })
+  return JSON.stringify({ ...result, trigger: 'http', chain: 'arbitrum-sepolia' })
 }
 
 // ---------------------------------------------------------------------------

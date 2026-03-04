@@ -14,6 +14,9 @@ import WalletStatus from '@/components/ui/WalletStatus';
 
 const BLOCKCHAIN_SERVICE_URL = process.env.NEXT_PUBLIC_BLOCKCHAIN_SERVICE_URL || 'http://localhost:5000';
 const WORLD_ID_APP_ID = (process.env.NEXT_PUBLIC_WORLD_ID_APP_ID || 'app_staging_YOUR_APP_ID') as `app_${string}`;
+// When set, World ID proofs are verified by the Chainlink CRE workflow (off-chain DON consensus)
+// rather than the backend directly — enabling World ID on Arbitrum Sepolia via CRE.
+const CRE_VERIFY_URL = process.env.NEXT_PUBLIC_CRE_VERIFY_URL || null;
 
 type ProposalStatus = 'active' | 'passed' | 'rejected';
 type TabType = 'active' | 'accepted' | 'rejected';
@@ -168,23 +171,34 @@ export default function ProposalPage() {
     }
   };
 
-  // Step 2: Called by IDKitRequestWidget — verifies proof on backend and submits on-chain vote.
+  // Step 2: Called by IDKitRequestWidget after World App returns the proof.
+  // Routes through Chainlink CRE (preferred) for off-chain World ID verification
+  // on Arbitrum Sepolia, falling back to direct backend verification.
   const handleVerify = async (result: IDKitResult) => {
     if (!pendingVote || !selectedProposal || !address || !rpContext) return;
-    const response = await fetch(`${BLOCKCHAIN_SERVICE_URL}/api/contract/vote-world-id`, {
+
+    const payload = {
+      proposalId: String(selectedProposal.id),
+      vote: pendingVote === 'yes',
+      voter: address,
+      idkitResult: result,
+      rp_id: rpContext.rp_id,
+    };
+
+    // Primary path: CRE workflow verifies the World ID proof off-chain (DON consensus)
+    // and casts the vote on Arbitrum Sepolia via /api/contract/cast-verified-vote.
+    const url = CRE_VERIFY_URL
+      ? CRE_VERIFY_URL
+      : `${BLOCKCHAIN_SERVICE_URL}/api/contract/vote-world-id`;
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        proposalId: selectedProposal.id,
-        vote: pendingVote === 'yes',
-        voter: address,
-        idkitResult: result,
-        rp_id: rpContext.rp_id,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await response.json();
     if (!data.success) throw new Error(data.error || 'Vote submission failed');
-    setTransactionId(data.transactionHash);
+    setTransactionId(data.transactionHash || data.txHash);
   };
 
   // Step 3: Called by IDKitRequestWidget after handleVerify resolves — update UI.

@@ -1,5 +1,88 @@
 import express from 'express';
 import { signRequest } from '@worldcoin/idkit-core';
+import { spawn } from 'child_process';
+import { readFileSync, writeFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const CRE_WORKFLOW_DIR = join(__dirname, '../../../../cre-workflow');
+
+// Parse cre-workflow/.env so secrets are available to the spawned CRE process.
+function parseEnvFile(filePath) {
+  try {
+    return Object.fromEntries(
+      readFileSync(filePath, 'utf8')
+        .split('\n')
+        .filter(l => l.trim() && !l.trim().startsWith('#') && l.includes('='))
+        .map(l => {
+          const idx = l.indexOf('=');
+          return [l.slice(0, idx).trim(), l.slice(idx + 1).trim().replace(/^["']|["']$/g, '')];
+        })
+    );
+  } catch { return {}; }
+}
+
+// Parse the JSON result line from `cre workflow simulate` stdout.
+function parseCreResult(stdout) {
+  const lines = stdout.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('Workflow Simulation Result:')) {
+      for (let j = i + 1; j < lines.length; j++) {
+        const line = lines[j].trim();
+        if (line) {
+          try {
+            const parsed = JSON.parse(line);
+            return typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
+          } catch { return null; }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Writes the proof payload then runs `cre workflow simulate verify-vote`.
+// CRE verifies the World ID proof off-chain (DON consensus) and calls
+// /api/contract/cast-verified-vote to land the vote on Arbitrum Sepolia.
+function runCreVerifyVote(payload) {
+  const payloadPath = join(CRE_WORKFLOW_DIR, 'test/verify-vote-payload.json');
+  writeFileSync(payloadPath, JSON.stringify(payload, null, 2));
+
+  const creEnv = parseEnvFile(join(CRE_WORKFLOW_DIR, '.env'));
+  const HOME = process.env.HOME || '/Users/vaibhav';
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(
+      'cre',
+      ['workflow', 'simulate', 'verify-vote', '-T', 'staging-settings',
+       '--non-interactive', '--trigger-index', '0', '--http-payload', `@${payloadPath}`],
+      {
+        cwd: CRE_WORKFLOW_DIR,
+        env: { ...process.env, ...creEnv, PATH: `${HOME}/.cre/bin:${process.env.PATH}` },
+      }
+    );
+
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', d => { stdout += d; process.stdout.write(d); });
+    proc.stderr.on('data', d => { stderr += d; process.stderr.write(d); });
+
+    const timeout = setTimeout(() => {
+      proc.kill();
+      reject(new Error('CRE simulate timed out after 120s'));
+    }, 120_000);
+
+    proc.on('close', code => {
+      clearTimeout(timeout);
+      if (code !== 0) return reject(new Error(`CRE simulate exited ${code}: ${stderr.slice(-500)}`));
+      const result = parseCreResult(stdout);
+      if (!result) return reject(new Error('CRE simulate completed but returned no parseable result'));
+      resolve(result);
+    });
+  });
+}
 
 export const contractRoutes = express.Router();
 
@@ -133,10 +216,12 @@ contractRoutes.get('/world-id/request', (req, res, next) => {
 });
 
 // Called by the frontend after World ID proof is obtained.
-// Verifies proof against the World ID v4 API, then casts a sybil-resistant vote on-chain.
+// Delegates to the Chainlink CRE verify-vote workflow (via cre simulate) which:
+//   1. Verifies the World ID v4 proof off-chain using DON consensus
+//   2. Calls /cast-verified-vote to land the sybil-resistant vote on Arbitrum Sepolia
+// This bridges World ID to Arbitrum Sepolia, which has no native World ID contract.
 contractRoutes.post('/vote-world-id', async (req, res, next) => {
   try {
-    const svc = req.app.locals.blockchainService;
     const { proposalId, vote, voter, idkitResult, rp_id } = req.body;
     if (proposalId === undefined || vote === undefined || !voter || !idkitResult || !rp_id) {
       return res.status(400).json({
@@ -145,28 +230,35 @@ contractRoutes.post('/vote-world-id', async (req, res, next) => {
       });
     }
 
-    // Step 1: Verify the World ID proof via the v4 API
-    const verifyUrl = `https://developer.world.org/api/v4/verify/${encodeURIComponent(rp_id)}`;
-    const verifyRes = await fetch(verifyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(idkitResult),
+    console.log(`[CRE] Delegating World ID verification to CRE simulate — proposal #${proposalId}`);
+
+    const result = await runCreVerifyVote({
+      proposalId: String(proposalId),
+      vote: vote === true || vote === 'true' || vote === 'yes',
+      voter,
+      idkitResult,
+      rp_id,
     });
-    const verifyData = await verifyRes.json();
-    if (!verifyRes.ok || !verifyData.success) {
+
+    res.json({ success: true, transactionHash: result.txHash, ...result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Called by the Chainlink CRE verify-vote workflow AFTER it has verified the
+// World ID proof off-chain. CRE is the trusted verifier — this endpoint only
+// casts the vote with the nullifier CRE extracted; no re-verification here.
+contractRoutes.post('/cast-verified-vote', async (req, res, next) => {
+  try {
+    const svc = req.app.locals.blockchainService;
+    const { proposalId, vote, voter, nullifier } = req.body;
+    if (proposalId === undefined || vote === undefined || !voter || !nullifier) {
       return res.status(400).json({
         success: false,
-        error: `World ID verification failed: ${verifyData.detail || verifyData.code || verifyRes.status}`,
+        error: 'Missing required fields: proposalId, vote, voter, nullifier',
       });
     }
-
-    // Step 2: Extract nullifier (top-level in v4 response, hex string)
-    const nullifier = verifyData.nullifier;
-    if (!nullifier) {
-      return res.status(400).json({ success: false, error: 'World ID did not return a nullifier' });
-    }
-
-    // Step 3: Cast the verified vote on-chain
     const result = await svc.voteVerified(
       parseInt(proposalId),
       vote === true || vote === 'true' || vote === 'yes',
