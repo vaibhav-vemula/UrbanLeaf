@@ -6,10 +6,6 @@
 
 ---
 
-UrbanLeaf lets government professionals submit development proposals for park land, and lets nearby residents vote on them with World ID verified, sybil-resistant votes. Proposals are automatically scored by Gemini AI via Chainlink CRE DON consensus, and expired proposals are closed automatically by a daily cron workflow.
-
----
-
 ## Chainlink CRE Files
 
 | File | Purpose |
@@ -33,6 +29,10 @@ UrbanLeaf lets government professionals submit development proposals for park la
 | [`backend/blockchain-service/src/routes/contract.js`](backend/blockchain-service/src/routes/contract.js) | Backend routes — `GET /world-id/request` (signed rp_context) and `POST /vote-world-id` |
 | [`backend/blockchain-service/contracts/UrbanLeafCommunity.sol`](backend/blockchain-service/contracts/UrbanLeafCommunity.sol) | Smart contract — `voteVerified()` with nullifier-based sybil resistance |
 | [`frontend/app/proposal/page.tsx`](frontend/app/proposal/page.tsx) | Frontend — `IDKitRequestWidget` controlled mode, World ID voting UI |
+
+---
+
+UrbanLeaf lets government professionals submit development proposals for park land, and lets nearby residents vote on them with World ID verified, sybil-resistant votes. Proposals are automatically scored by Gemini AI via Chainlink CRE DON consensus, and expired proposals are closed automatically by a daily cron workflow.
 
 ---
 
