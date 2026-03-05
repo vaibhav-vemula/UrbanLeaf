@@ -1,8 +1,38 @@
 # UrbanLeaf AI
 
-**AI-powered community governance platform for protecting urban green spaces — built on Arbitrum Sepolia with Chainlink CRE and World ID.**
+### Decentralizing Urban City Planning and Governance Through AI & Blockchain
 
-UrbanLeaf lets citizens and city planners create on-chain proposals to protect parks threatened by development. Proposals are automatically scored by Gemini AI via Chainlink CRE, votes are sybil-resistant via World ID v4, and expired proposals are closed automatically by a daily cron workflow — all with DON consensus from day one.
+**Demo Video:** [https://youtu.be/20KxExztAsc](https://youtu.be/20KxExztAsc)
+
+---
+
+UrbanLeaf lets government professionals submit development proposals for park land, and lets nearby residents vote on them with World ID verified, sybil-resistant votes. Proposals are automatically scored by Gemini AI via Chainlink CRE DON consensus, and expired proposals are closed automatically by a daily cron workflow.
+
+---
+
+## Chainlink CRE Files
+
+| File | Purpose |
+|---|---|
+| [`cre-workflow/score-proposal/main.ts`](cre-workflow/score-proposal/main.ts) | HTTP trigger — AI scores proposal with Gemini via DON consensus |
+| [`cre-workflow/evm-score-proposal/main.ts`](cre-workflow/evm-score-proposal/main.ts) | EVM log trigger — autonomous scoring on `ProposalCreated` event |
+| [`cre-workflow/auto-close/main.ts`](cre-workflow/auto-close/main.ts) | Cron trigger — closes expired proposals daily at midnight UTC |
+| [`cre-workflow/verify-vote/main.ts`](cre-workflow/verify-vote/main.ts) | HTTP trigger — World ID v4 proof verification via DON consensus |
+| [`cre-workflow/score-proposal/workflow.yaml`](cre-workflow/score-proposal/workflow.yaml) | Workflow config for score-proposal |
+| [`cre-workflow/evm-score-proposal/workflow.yaml`](cre-workflow/evm-score-proposal/workflow.yaml) | Workflow config for evm-score-proposal |
+| [`cre-workflow/auto-close/workflow.yaml`](cre-workflow/auto-close/workflow.yaml) | Workflow config for auto-close |
+| [`cre-workflow/verify-vote/workflow.yaml`](cre-workflow/verify-vote/workflow.yaml) | Workflow config for verify-vote |
+| [`backend/blockchain-service/src/services/blockchain-service.js`](backend/blockchain-service/src/services/blockchain-service.js) | Blockchain service — called by CRE workflows to write results on-chain |
+| [`backend/blockchain-service/contracts/UrbanLeafCommunity.sol`](backend/blockchain-service/contracts/UrbanLeafCommunity.sol) | Smart contract — receives CRE DON reports via `onReport()` |
+
+## World ID Files
+
+| File | Purpose |
+|---|---|
+| [`cre-workflow/verify-vote/main.ts`](cre-workflow/verify-vote/main.ts) | CRE workflow — each DON node verifies World ID v4 ZK proof independently |
+| [`backend/blockchain-service/src/routes/contract.js`](backend/blockchain-service/src/routes/contract.js) | Backend routes — `GET /world-id/request` (signed rp_context) and `POST /vote-world-id` |
+| [`backend/blockchain-service/contracts/UrbanLeafCommunity.sol`](backend/blockchain-service/contracts/UrbanLeafCommunity.sol) | Smart contract — `voteVerified()` with nullifier-based sybil resistance |
+| [`frontend/app/proposal/page.tsx`](frontend/app/proposal/page.tsx) | Frontend — `IDKitRequestWidget` controlled mode, World ID voting UI |
 
 ---
 
