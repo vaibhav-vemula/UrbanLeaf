@@ -4,6 +4,8 @@
 
 **Demo Video:** [https://youtu.be/20KxExztAsc](https://youtu.be/20KxExztAsc)
 
+**Smart Contract:** [`0x3E4E04cA566698Ae4886196c201cBEE3CD45A126`](https://sepolia.arbiscan.io/address/0x3E4E04cA566698Ae4886196c201cBEE3CD45A126) on Arbitrum Sepolia
+
 ---
 
 ## Chainlink CRE Files
